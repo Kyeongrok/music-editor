@@ -1,4 +1,5 @@
 using System.IO;
+using NAudio.Lame;
 using NAudio.MediaFoundation;
 using NAudio.Wave;
 
@@ -83,7 +84,9 @@ public sealed class NAudioEditor : IAudioEditor
                     WaveFileWriter.CreateWaveFile(tempPath, pcm);
                     break;
                 case AudioFormat.Mp3:
-                    MediaFoundationEncoder.EncodeToMp3(pcm, tempPath, bitrateBps);
+                    // OS의 Media Foundation MP3 인코더는 에디션/포맷에 따라 없을 수 있어
+                    // LAME(내장 네이티브)으로 인코딩해 어디서나 동작하게 한다.
+                    EncodeToMp3WithLame(pcm, tempPath, bitrateBps, cancellationToken);
                     break;
                 case AudioFormat.M4a:
                     MediaFoundationEncoder.EncodeToAac(pcm, tempPath, bitrateBps);
@@ -100,6 +103,21 @@ public sealed class NAudioEditor : IAudioEditor
         {
             if (File.Exists(tempPath))
                 File.Delete(tempPath);
+        }
+    }
+
+    private static void EncodeToMp3WithLame(IWaveProvider pcm, string outputPath,
+        int bitrateBps, CancellationToken cancellationToken)
+    {
+        var bitrateKbps = Math.Max(32, bitrateBps / 1000);
+        using var writer = new LameMP3FileWriter(outputPath, pcm.WaveFormat, bitrateKbps);
+
+        var buffer = new byte[pcm.WaveFormat.AverageBytesPerSecond];
+        int read;
+        while ((read = pcm.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            writer.Write(buffer, 0, read);
         }
     }
 }

@@ -7,6 +7,7 @@
 
     <conv:EnumToBooleanConverter x:Key="EnumToBool" />
     <conv:GreaterThanZeroConverter x:Key="GreaterThanZero" />
+    <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
     <!--  파형 모드 토글 (선택 / 이동)  -->
     <Style x:Key="ModeButton" TargetType="RadioButton">
@@ -51,6 +52,39 @@
         <Setter Property="Padding" Value="6,4" />
         <Setter Property="CaretBrush" Value="#EEEEEE" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <!--  전사 결과 목록 (다크 테마, 줄 선택/순서변경)  -->
+    <Style x:Key="DarkListBox" TargetType="ListBox">
+        <Setter Property="Background" Value="#252526" />
+        <Setter Property="BorderBrush" Value="#3C3C3C" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="#EEEEEE" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+    </Style>
+
+    <Style x:Key="DarkListBoxItem" TargetType="ListBoxItem">
+        <Setter Property="Foreground" Value="#DDDDDD" />
+        <Setter Property="Padding" Value="6,3" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#2D2D30" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#0078D4" />
+                            <Setter Property="Foreground" Value="White" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="AccentButton" TargetType="Button">
@@ -328,24 +362,72 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <Button
-                                        Grid.Row="0"
-                                        HorizontalAlignment="Left"
-                                        Command="{Binding TranscribeCommand}"
-                                        Content="🎙 선택 구간 전사"
-                                        Style="{StaticResource GhostButton}"
-                                        ToolTip="드래그한 구간의 음성을 한국어 텍스트로 받아씁니다 (최초 1회 모델 다운로드)" />
-                                    <TextBox
+                                    <StackPanel Grid.Row="0" Orientation="Horizontal">
+                                        <Button
+                                            Command="{Binding TranscribeCommand}"
+                                            Content="🎙 선택 구간 전사"
+                                            Style="{StaticResource GhostButton}"
+                                            ToolTip="드래그한 구간의 음성을 한국어 텍스트로 받아씁니다. 결과는 아래에 계속 누적됩니다 (최초 1회 모델 다운로드)" />
+                                        <Button
+                                            Margin="8,0,0,0"
+                                            Command="{Binding ClearTranscriptCommand}"
+                                            Content="🗑 지우기"
+                                            Style="{StaticResource GhostButton}"
+                                            ToolTip="누적된 전사 결과를 모두 지웁니다" />
+                                        <Button
+                                            Width="36"
+                                            Margin="16,0,0,0"
+                                            Padding="0"
+                                            Command="{Binding MoveLinesUpCommand}"
+                                            CommandParameter="{Binding SelectedItems, ElementName=PART_TranscriptList}"
+                                            Content="↑"
+                                            Style="{StaticResource GhostButton}"
+                                            ToolTip="선택한 줄을 위로 이동" />
+                                        <Button
+                                            Width="36"
+                                            Margin="8,0,0,0"
+                                            Padding="0"
+                                            Command="{Binding MoveLinesDownCommand}"
+                                            CommandParameter="{Binding SelectedItems, ElementName=PART_TranscriptList}"
+                                            Content="↓"
+                                            Style="{StaticResource GhostButton}"
+                                            ToolTip="선택한 줄을 아래로 이동" />
+                                    </StackPanel>
+                                    <ProgressBar
                                         Grid.Row="1"
-                                        Height="84"
+                                        Height="6"
                                         Margin="0,8,0,0"
-                                        VerticalContentAlignment="Top"
-                                        IsReadOnly="True"
-                                        Style="{StaticResource DarkTextBox}"
-                                        Text="{Binding Transcript, Mode=OneWay}"
-                                        TextWrapping="Wrap"
-                                        VerticalScrollBarVisibility="Auto" />
+                                        Background="#252526"
+                                        BorderThickness="0"
+                                        Foreground="#0078D4"
+                                        Maximum="100"
+                                        Minimum="0"
+                                        Value="{Binding TranscribeProgress}"
+                                        Visibility="{Binding IsTranscribing, Converter={StaticResource BoolToVis}}">
+                                        <ProgressBar.Style>
+                                            <Style TargetType="ProgressBar">
+                                                <Style.Triggers>
+                                                    <!--  세그먼트가 나오기 전(0%)에는 진행 중임을 알리도록 불확정 애니메이션  -->
+                                                    <DataTrigger Binding="{Binding TranscribeProgress}" Value="0">
+                                                        <Setter Property="IsIndeterminate" Value="True" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ProgressBar.Style>
+                                    </ProgressBar>
+                                    <ListBox
+                                        x:Name="PART_TranscriptList"
+                                        Grid.Row="2"
+                                        Height="96"
+                                        Margin="0,8,0,0"
+                                        DisplayMemberPath="Text"
+                                        ItemContainerStyle="{StaticResource DarkListBoxItem}"
+                                        ItemsSource="{Binding TranscriptLines}"
+                                        SelectionMode="Extended"
+                                        Style="{StaticResource DarkListBox}"
+                                        ToolTip="드래그(또는 Shift/Ctrl 클릭)로 여러 줄 선택 → ↑↓ 버튼으로 순서 변경" />
                                 </Grid>
 
                                 <!--  출력 포맷  -->

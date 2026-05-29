@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -33,6 +35,14 @@ public partial class MainWindowViewModel : ObservableObject
 
         _cursorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         _cursorTimer.Tick += OnCursorTick;
+
+        // 줄 개수가 바뀌면 지우기/이동 버튼의 활성화 상태를 갱신한다.
+        TranscriptLines.CollectionChanged += (_, _) =>
+        {
+            ClearTranscriptCommand.NotifyCanExecuteChanged();
+            MoveLinesUpCommand.NotifyCanExecuteChanged();
+            MoveLinesDownCommand.NotifyCanExecuteChanged();
+        };
     }
 
     /// <summary>창 로드 시 호출. 새 버전이 있으면 내려받고 재시작 여부를 묻는다.</summary>
@@ -79,9 +89,24 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private double _gainDb = 6;
 
-    // 선택 구간 전사 결과(타임스탬프 포함).
+    // 선택 구간 전사 결과(타임스탬프 포함). 전사할 때마다 줄 단위로 누적되며
+    // 목록에서 여러 줄을 선택해 ↑↓로 순서를 바꿀 수 있다.
+    public ObservableCollection<TranscriptLine> TranscriptLines { get; } = new();
+
+    // 전사는 시간이 걸리므로 IsBusy와 분리한다. 전사 중에도 재생은 허용하고
+    // 샘플을 바꾸는 편집/내보내기/열기만 막는다.
     [ObservableProperty]
-    private string _transcript = string.Empty;
+    [NotifyCanExecuteChangedFor(nameof(OpenFileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CutCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportCommand))]
+    private bool _isTranscribing;
+
+    // 전사 진행률(0~100). 프로그레스바에 바인딩된다.
+    [ObservableProperty]
+    private double _transcribeProgress;
 
     [ObservableProperty]
     private AudioFormat _selectedFormat = AudioFormat.M4a;
@@ -166,13 +191,13 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private bool CanInteract() => !IsBusy;
+    private bool CanInteract() => !IsBusy && !IsTranscribing;
 
     private bool CanPlay() => !IsBusy && HasDocument;
 
     // ── 편집: 구간 잘라내기 / 실행 취소 ─────────────────────────────
 
-    private bool CanCut() => !IsBusy && HasDocument && EndSeconds > StartSeconds;
+    private bool CanCut() => !IsBusy && !IsTranscribing && HasDocument && EndSeconds > StartSeconds;
 
     [RelayCommand(CanExecute = nameof(CanCut))]
     private async Task CutAsync()
@@ -195,7 +220,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     // ── 편집: 구간 볼륨 조절 ─────────────────────────────────────
 
-    private bool CanApplyGain() => !IsBusy && HasDocument && EndSeconds > StartSeconds;
+    private bool CanApplyGain() => !IsBusy && !IsTranscribing && HasDocument && EndSeconds > StartSeconds;
 
     [RelayCommand(CanExecute = nameof(CanApplyGain))]
     private async Task ApplyGainAsync()
@@ -225,31 +250,33 @@ public partial class MainWindowViewModel : ObservableObject
 
     // ── 음성 인식: 선택 구간 전사 ─────────────────────────────────
 
-    private bool CanTranscribe() => !IsBusy && HasDocument && EndSeconds > StartSeconds;
+    private bool CanTranscribe() => !IsBusy && !IsTranscribing && HasDocument && EndSeconds > StartSeconds;
 
     [RelayCommand(CanExecute = nameof(CanTranscribe))]
     private async Task TranscribeAsync()
     {
-        StopPlayback();
-        IsBusy = true;
+        // 재생은 멈추지 않는다. 전사 동안에도 들을 수 있게 한다.
+        IsTranscribing = true;
+        TranscribeProgress = 0;
         var start = StartSeconds;
         var end = EndSeconds;
         try
         {
-            Transcript = string.Empty;
             var region = _document!.CopyRange(TimeSpan.FromSeconds(start), TimeSpan.FromSeconds(end));
             var sampleRate = _document.SampleRate;
             var channels = _document.Channels;
 
+            // 모델 로딩·리샘플·추론은 무거우므로 백그라운드에서 돌려 UI(재생 포함)를 막지 않는다.
             var progress = new Progress<string>(s => Status = s);
-            var segments = await _recognizer.TranscribeAsync(region, sampleRate, channels, "ko", progress);
+            var percent = new Progress<double>(p => TranscribeProgress = p);
+            var segments = await Task.Run(
+                () => _recognizer.TranscribeAsync(region, sampleRate, channels, "ko", progress, percent));
 
             // 타임스탬프는 구간 시작을 0으로 본 상대값이라 파일 기준 절대 시간으로 보정한다.
+            // 이전 결과를 지우지 않고 줄 단위로 이어 붙인다.
             var offset = TimeSpan.FromSeconds(start);
-            Transcript = segments.Count == 0
-                ? "(인식된 음성이 없습니다)"
-                : string.Join(Environment.NewLine,
-                    segments.Select(s => $"[{s.Start + offset:mm\\:ss}] {s.Text}"));
+            foreach (var s in segments)
+                TranscriptLines.Add(new TranscriptLine($"[{s.Start + offset:mm\\:ss}] {s.Text}"));
 
             Status = segments.Count == 0
                 ? "전사 완료 · 인식된 음성 없음"
@@ -262,11 +289,53 @@ public partial class MainWindowViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            IsTranscribing = false;
         }
     }
 
-    private bool CanUndo() => !IsBusy && _document?.CanUndo == true;
+    private bool HasTranscript() => TranscriptLines.Count > 0;
+
+    [RelayCommand(CanExecute = nameof(HasTranscript))]
+    private void ClearTranscript() => TranscriptLines.Clear();
+
+    [RelayCommand(CanExecute = nameof(HasTranscript))]
+    private void MoveLinesUp(IList? selected) => MoveLines(selected, -1);
+
+    [RelayCommand(CanExecute = nameof(HasTranscript))]
+    private void MoveLinesDown(IList? selected) => MoveLines(selected, +1);
+
+    /// <summary>선택된 줄들을 위(-1)/아래(+1)로 한 칸 이동한다. 선택은 그대로 따라간다.</summary>
+    private void MoveLines(IList? selected, int delta)
+    {
+        if (selected is null || selected.Count == 0)
+            return;
+
+        // 실제 컬렉션에서의 인덱스를 참조로 찾아 정렬한다(중복 텍스트도 안전).
+        var indices = selected.Cast<TranscriptLine>()
+            .Select(line => TranscriptLines.IndexOf(line))
+            .Where(i => i >= 0)
+            .OrderBy(i => i)
+            .ToList();
+        if (indices.Count == 0)
+            return;
+
+        if (delta < 0)
+        {
+            if (indices[0] == 0)
+                return; // 이미 맨 위
+            foreach (var idx in indices)
+                TranscriptLines.Move(idx, idx - 1);
+        }
+        else
+        {
+            if (indices[^1] == TranscriptLines.Count - 1)
+                return; // 이미 맨 아래
+            for (var i = indices.Count - 1; i >= 0; i--)
+                TranscriptLines.Move(indices[i], indices[i] + 1);
+        }
+    }
+
+    private bool CanUndo() => !IsBusy && !IsTranscribing && _document?.CanUndo == true;
 
     [RelayCommand(CanExecute = nameof(CanUndo))]
     private async Task UndoAsync()
@@ -334,13 +403,9 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 재생 시작 지점이 선택 구간 안이면 구간 끝에서 멈추고,
-    /// 구간 밖(파형의 다른 곳을 클릭)이면 끝까지 재생한다.
+    /// 선택 구간과 무관하게 항상 파일 끝까지 재생한다.
     /// </summary>
-    private double ResolvePlaybackEnd(double from)
-        => EndSeconds > StartSeconds && from >= StartSeconds && from < EndSeconds
-            ? EndSeconds
-            : DurationSeconds;
+    private double ResolvePlaybackEnd(double from) => DurationSeconds;
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
     private void Stop() => StopPlayback();
@@ -387,7 +452,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     // ── 내보내기 ──────────────────────────────────────────────────
 
-    private bool CanExport() => !IsBusy && HasDocument;
+    private bool CanExport() => !IsBusy && !IsTranscribing && HasDocument;
 
     [RelayCommand(CanExecute = nameof(CanExport))]
     private async Task ExportAsync()
@@ -418,4 +483,12 @@ public partial class MainWindowViewModel : ObservableObject
             IsBusy = false;
         }
     }
+}
+
+/// <summary>전사 결과의 한 줄. 중복 텍스트도 구분되도록 참조 타입으로 둔다.</summary>
+public sealed class TranscriptLine
+{
+    public TranscriptLine(string text) => Text = text;
+
+    public string Text { get; }
 }

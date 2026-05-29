@@ -41,6 +41,7 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer, IDisposable
         float[] samples, int sampleRate, int channels,
         string language = "ko",
         IProgress<string>? progress = null,
+        IProgress<double>? percentProgress = null,
         CancellationToken cancellationToken = default)
     {
         if (samples.Length == 0)
@@ -48,18 +49,52 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer, IDisposable
 
         var factory = await EnsureFactoryAsync(progress, cancellationToken);
 
-        progress?.Report("전사 중...");
+        progress?.Report("전사 준비 중...");
         var mono16k = Resample16kMono(samples, sampleRate, channels);
+        var totalSeconds = mono16k.Length / (double)WhisperSampleRate;
 
         await using var processor = factory.CreateBuilder()
             .WithLanguage(language)
             .Build();
 
         var segments = new List<TranscriptSegment>();
-        await foreach (var segment in processor.ProcessAsync(mono16k, cancellationToken))
-            segments.Add(new TranscriptSegment(segment.Start, segment.End, segment.Text.Trim()));
+        var stopwatch = Stopwatch.StartNew();
+        var percent = 0.0;
+
+        // 세그먼트는 띄엄띄엄 도착하므로 0.5초마다 경과 시간/진행률을 따로 갱신한다.
+        using var tickerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var ticker = ReportProgressLoopAsync(progress, stopwatch, () => percent, tickerCts.Token);
+
+        try
+        {
+            await foreach (var segment in processor.ProcessAsync(mono16k, cancellationToken))
+            {
+                segments.Add(new TranscriptSegment(segment.Start, segment.End, segment.Text.Trim()));
+                if (totalSeconds > 0)
+                {
+                    percent = Math.Min(100, segment.End.TotalSeconds / totalSeconds * 100);
+                    percentProgress?.Report(percent);
+                }
+            }
+        }
+        finally
+        {
+            tickerCts.Cancel();
+            try { await ticker; } catch (OperationCanceledException) { }
+        }
 
         return segments;
+    }
+
+    private static async Task ReportProgressLoopAsync(IProgress<string>? progress,
+        Stopwatch stopwatch, Func<double> percent, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            progress?.Report($"전사 중... {percent():0}% · {stopwatch.Elapsed.TotalSeconds:0}초 경과");
+            try { await Task.Delay(500, cancellationToken); }
+            catch (TaskCanceledException) { break; }
+        }
     }
 
     private async Task<WhisperFactory> EnsureFactoryAsync(
