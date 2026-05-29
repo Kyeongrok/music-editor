@@ -42,6 +42,7 @@ public class App : Application
     private void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IAudioEditor, NAudioEditor>();
+        services.AddSingleton<ISpeechRecognizer, WhisperSpeechRecognizer>();
         services.AddSingleton<AudioPlayer>();
         services.AddSingleton<UpdateService>();
         services.AddSingleton<MainWindowViewModel>();

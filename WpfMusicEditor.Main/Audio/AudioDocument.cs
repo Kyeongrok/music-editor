@@ -88,6 +88,19 @@ public sealed class AudioDocument
         _undo.Pop().Undo(ref _samples);
     }
 
+    /// <summary>[start, end) 구간의 인터리브 샘플을 복사해 돌려준다(원본은 그대로 둔다).</summary>
+    public float[] CopyRange(TimeSpan start, TimeSpan end)
+    {
+        var startIdx = ClampFrame(start) * Channels;
+        var endIdx = ClampFrame(end) * Channels;
+        if (endIdx <= startIdx)
+            return Array.Empty<float>();
+
+        var slice = new float[endIdx - startIdx];
+        Array.Copy(_samples, startIdx, slice, 0, slice.Length);
+        return slice;
+    }
+
     /// <summary>파형 표시용으로 전체를 <paramref name="buckets"/>개로 나눠 피크(0~1 정규화)를 계산한다.</summary>
     public float[] ComputePeaks(int buckets)
     {

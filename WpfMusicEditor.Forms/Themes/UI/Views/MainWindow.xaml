@@ -108,9 +108,9 @@
     <Style BasedOn="{StaticResource {x:Type support:WpfMusicEditorWindow}}" TargetType="{x:Type views:MainWindow}">
         <Setter Property="Title" Value="WpfMusicEditor" />
         <Setter Property="Width" Value="640" />
-        <Setter Property="Height" Value="560" />
+        <Setter Property="Height" Value="680" />
         <Setter Property="MinWidth" Value="520" />
-        <Setter Property="MinHeight" Value="470" />
+        <Setter Property="MinHeight" Value="560" />
         <Setter Property="WindowStyle" Value="None" />
         <Setter Property="Template">
             <Setter.Value>
@@ -145,6 +145,7 @@
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
@@ -322,8 +323,33 @@
                                         Style="{StaticResource AccentButton}" />
                                 </Grid>
 
+                                <!--  음성 인식: 선택 구간 전사  -->
+                                <Grid Grid.Row="5" Margin="0,16,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Button
+                                        Grid.Row="0"
+                                        HorizontalAlignment="Left"
+                                        Command="{Binding TranscribeCommand}"
+                                        Content="🎙 선택 구간 전사"
+                                        Style="{StaticResource GhostButton}"
+                                        ToolTip="드래그한 구간의 음성을 한국어 텍스트로 받아씁니다 (최초 1회 모델 다운로드)" />
+                                    <TextBox
+                                        Grid.Row="1"
+                                        Height="84"
+                                        Margin="0,8,0,0"
+                                        VerticalContentAlignment="Top"
+                                        IsReadOnly="True"
+                                        Style="{StaticResource DarkTextBox}"
+                                        Text="{Binding Transcript, Mode=OneWay}"
+                                        TextWrapping="Wrap"
+                                        VerticalScrollBarVisibility="Auto" />
+                                </Grid>
+
                                 <!--  출력 포맷  -->
-                                <Grid Grid.Row="5" Margin="0,18,0,0">
+                                <Grid Grid.Row="6" Margin="0,18,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="160" />
@@ -342,7 +368,7 @@
 
                                 <!--  상태  -->
                                 <TextBlock
-                                    Grid.Row="6"
+                                    Grid.Row="7"
                                     Margin="0,12,0,0"
                                     VerticalAlignment="Bottom"
                                     Style="{StaticResource Label}"
@@ -351,7 +377,7 @@
 
                                 <!--  내보내기  -->
                                 <Button
-                                    Grid.Row="7"
+                                    Grid.Row="8"
                                     Margin="0,12,0,0"
                                     HorizontalAlignment="Right"
                                     Command="{Binding ExportCommand}"

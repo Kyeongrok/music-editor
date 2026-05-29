@@ -13,6 +13,7 @@ namespace WpfMusicEditor.Forms.ViewModels;
 public partial class MainWindowViewModel : ObservableObject
 {
     private readonly IAudioEditor _editor;
+    private readonly ISpeechRecognizer _recognizer;
     private readonly AudioPlayer _player;
     private readonly UpdateService _updateService;
     private readonly DispatcherTimer _cursorTimer;
@@ -21,9 +22,11 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _suppressCursorSeek;
     private double _playbackEnd;
 
-    public MainWindowViewModel(IAudioEditor editor, AudioPlayer player, UpdateService updateService)
+    public MainWindowViewModel(IAudioEditor editor, ISpeechRecognizer recognizer,
+        AudioPlayer player, UpdateService updateService)
     {
         _editor = editor;
+        _recognizer = recognizer;
         _player = player;
         _updateService = updateService;
         _player.PlaybackStopped += OnPlaybackStopped;
@@ -63,16 +66,22 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
     private double _startSeconds;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
     private double _endSeconds;
 
     // 구간 볼륨을 키울/줄일 양(dB). 양수면 키우고 음수면 줄인다.
     [ObservableProperty]
     private double _gainDb = 6;
+
+    // 선택 구간 전사 결과(타임스탬프 포함).
+    [ObservableProperty]
+    private string _transcript = string.Empty;
 
     [ObservableProperty]
     private AudioFormat _selectedFormat = AudioFormat.M4a;
@@ -84,6 +93,7 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
     private bool _isBusy;
 
@@ -213,6 +223,49 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    // ── 음성 인식: 선택 구간 전사 ─────────────────────────────────
+
+    private bool CanTranscribe() => !IsBusy && HasDocument && EndSeconds > StartSeconds;
+
+    [RelayCommand(CanExecute = nameof(CanTranscribe))]
+    private async Task TranscribeAsync()
+    {
+        StopPlayback();
+        IsBusy = true;
+        var start = StartSeconds;
+        var end = EndSeconds;
+        try
+        {
+            Transcript = string.Empty;
+            var region = _document!.CopyRange(TimeSpan.FromSeconds(start), TimeSpan.FromSeconds(end));
+            var sampleRate = _document.SampleRate;
+            var channels = _document.Channels;
+
+            var progress = new Progress<string>(s => Status = s);
+            var segments = await _recognizer.TranscribeAsync(region, sampleRate, channels, "ko", progress);
+
+            // 타임스탬프는 구간 시작을 0으로 본 상대값이라 파일 기준 절대 시간으로 보정한다.
+            var offset = TimeSpan.FromSeconds(start);
+            Transcript = segments.Count == 0
+                ? "(인식된 음성이 없습니다)"
+                : string.Join(Environment.NewLine,
+                    segments.Select(s => $"[{s.Start + offset:mm\\:ss}] {s.Text}"));
+
+            Status = segments.Count == 0
+                ? "전사 완료 · 인식된 음성 없음"
+                : $"전사 완료 · {segments.Count}개 구간 ({start:0.##}~{end:0.##}초)";
+        }
+        catch (Exception ex)
+        {
+            Status = $"전사 실패: {ex.Message}";
+            MessageBox.Show(ex.Message, "전사 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private bool CanUndo() => !IsBusy && _document?.CanUndo == true;
 
     [RelayCommand(CanExecute = nameof(CanUndo))]
@@ -250,6 +303,7 @@ public partial class MainWindowViewModel : ObservableObject
     {
         CutCommand.NotifyCanExecuteChanged();
         ApplyGainCommand.NotifyCanExecuteChanged();
+        TranscribeCommand.NotifyCanExecuteChanged();
         UndoCommand.NotifyCanExecuteChanged();
         ExportCommand.NotifyCanExecuteChanged();
         PlayPauseCommand.NotifyCanExecuteChanged();
