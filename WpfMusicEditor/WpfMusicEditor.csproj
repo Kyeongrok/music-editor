@@ -5,9 +5,10 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UseWPF>true</UseWPF>
+        <ApplicationIcon>AppIcon.ico</ApplicationIcon>
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <!-- 로컬 빌드 기본값. CI에서는 -p:Version=$tag 로 오버라이드됨 (.github/workflows/release.yml) -->
-        <Version>0.0.1</Version>
+        <Version>0.0.3</Version>
         <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     </PropertyGroup>
 
