@@ -2,12 +2,12 @@ namespace WpfMusicEditor.Main.Audio;
 
 /// <summary>
 /// 메모리에 디코딩된 편집 가능한 오디오. 인터리브된 float PCM 샘플을 들고 있으며
-/// 구간 삭제(Cut)와 실행 취소(Undo)를 지원한다.
+/// 구간 삭제(Cut)·구간 볼륨 조절(ApplyGain)과 실행 취소(Undo)를 지원한다.
 /// </summary>
 public sealed class AudioDocument
 {
     private float[] _samples;
-    private readonly Stack<CutOperation> _undo = new();
+    private readonly Stack<IUndoStep> _undo = new();
 
     public AudioDocument(int sampleRate, int channels, float[] samples)
     {
@@ -50,18 +50,42 @@ public sealed class AudioDocument
         _samples = result;
     }
 
-    /// <summary>마지막 Cut을 되돌린다(삭제했던 샘플을 원위치에 다시 끼워 넣는다).</summary>
+    /// <summary>
+    /// [start, end) 구간의 볼륨을 <paramref name="gainDb"/> 데시벨만큼 키운다(음수면 줄인다).
+    /// 샘플이 [-1, 1] 범위를 넘으면 클리핑되지 않도록 잘라 낸다.
+    /// </summary>
+    public void ApplyGain(TimeSpan start, TimeSpan end, double gainDb)
+    {
+        var startFrame = ClampFrame(start);
+        var endFrame = ClampFrame(end);
+        if (endFrame <= startFrame)
+            return;
+
+        var startIdx = startFrame * Channels;
+        var endIdx = endFrame * Channels;
+
+        // 원본 구간을 백업해 두었다가 실행 취소 시 그대로 되돌린다.
+        var original = new float[endIdx - startIdx];
+        Array.Copy(_samples, startIdx, original, 0, original.Length);
+        _undo.Push(new GainOperation(startIdx, original));
+
+        var factor = (float)Math.Pow(10, gainDb / 20.0);
+        for (var i = startIdx; i < endIdx; i++)
+        {
+            var v = _samples[i] * factor;
+            if (v > 1f) v = 1f;
+            else if (v < -1f) v = -1f;
+            _samples[i] = v;
+        }
+    }
+
+    /// <summary>마지막 편집(Cut/ApplyGain)을 되돌린다.</summary>
     public void Undo()
     {
         if (_undo.Count == 0)
             return;
 
-        var op = _undo.Pop();
-        var result = new float[_samples.Length + op.Removed.Length];
-        Array.Copy(_samples, 0, result, 0, op.Index);
-        Array.Copy(op.Removed, 0, result, op.Index, op.Removed.Length);
-        Array.Copy(_samples, op.Index, result, op.Index + op.Removed.Length, _samples.Length - op.Index);
-        _samples = result;
+        _undo.Pop().Undo(ref _samples);
     }
 
     /// <summary>파형 표시용으로 전체를 <paramref name="buckets"/>개로 나눠 피크(0~1 정규화)를 계산한다.</summary>
@@ -100,5 +124,28 @@ public sealed class AudioDocument
         return (int)frame;
     }
 
-    private readonly record struct CutOperation(int Index, float[] Removed);
+    private interface IUndoStep
+    {
+        void Undo(ref float[] samples);
+    }
+
+    /// <summary>삭제했던 샘플을 원위치에 다시 끼워 넣어 길이를 복원한다.</summary>
+    private readonly record struct CutOperation(int Index, float[] Removed) : IUndoStep
+    {
+        public void Undo(ref float[] samples)
+        {
+            var result = new float[samples.Length + Removed.Length];
+            Array.Copy(samples, 0, result, 0, Index);
+            Array.Copy(Removed, 0, result, Index, Removed.Length);
+            Array.Copy(samples, Index, result, Index + Removed.Length, samples.Length - Index);
+            samples = result;
+        }
+    }
+
+    /// <summary>볼륨을 바꾸기 전 원본 구간을 제자리에 덮어써 되돌린다.</summary>
+    private readonly record struct GainOperation(int Index, float[] Original) : IUndoStep
+    {
+        public void Undo(ref float[] samples)
+            => Array.Copy(Original, 0, samples, Index, Original.Length);
+    }
 }

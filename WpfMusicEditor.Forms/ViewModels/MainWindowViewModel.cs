@@ -62,11 +62,17 @@ public partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     private double _startSeconds;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     private double _endSeconds;
+
+    // 구간 볼륨을 키울/줄일 양(dB). 양수면 키우고 음수면 줄인다.
+    [ObservableProperty]
+    private double _gainDb = 6;
 
     [ObservableProperty]
     private AudioFormat _selectedFormat = AudioFormat.M4a;
@@ -77,6 +83,7 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(PlayPauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopCommand))]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
     private bool _isBusy;
 
@@ -176,6 +183,36 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    // ── 편집: 구간 볼륨 조절 ─────────────────────────────────────
+
+    private bool CanApplyGain() => !IsBusy && HasDocument && EndSeconds > StartSeconds;
+
+    [RelayCommand(CanExecute = nameof(CanApplyGain))]
+    private async Task ApplyGainAsync()
+    {
+        StopPlayback();
+        IsBusy = true;
+        try
+        {
+            var start = StartSeconds;
+            var end = EndSeconds;
+            var db = GainDb;
+            await Task.Run(() =>
+                _document!.ApplyGain(TimeSpan.FromSeconds(start), TimeSpan.FromSeconds(end), db));
+
+            // 길이는 그대로이므로 다듬은 뒤 원래 구간 선택을 되살린다.
+            await RefreshAfterEditAsync(start);
+            StartSeconds = Math.Clamp(start, 0, DurationSeconds);
+            EndSeconds = Math.Clamp(end, 0, DurationSeconds);
+
+            Status = $"구간 볼륨 {db:+0.#;-0.#;0}dB 적용 · {start:0.##}~{end:0.##}초 (Ctrl+Z로 실행 취소)";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private bool CanUndo() => !IsBusy && _document?.CanUndo == true;
 
     [RelayCommand(CanExecute = nameof(CanUndo))]
@@ -212,6 +249,7 @@ public partial class MainWindowViewModel : ObservableObject
     private void RefreshCommands()
     {
         CutCommand.NotifyCanExecuteChanged();
+        ApplyGainCommand.NotifyCanExecuteChanged();
         UndoCommand.NotifyCanExecuteChanged();
         ExportCommand.NotifyCanExecuteChanged();
         PlayPauseCommand.NotifyCanExecuteChanged();
