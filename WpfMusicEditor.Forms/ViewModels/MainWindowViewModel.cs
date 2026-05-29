@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using WpfMusicEditor.Forms.Services;
 using WpfMusicEditor.Main.Audio;
+using WpfMusicEditor.Support.UI.Units;
 
 namespace WpfMusicEditor.Forms.ViewModels;
 
@@ -92,6 +93,13 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private double _playPositionSeconds;
 
+    [ObservableProperty]
+    private WaveformInteractionMode _waveformMode = WaveformInteractionMode.Select;
+
+    // 값을 바꾸면 파형이 전체 보기로 돌아간다(새 파일 열기 전용). 잘라내기/실행취소는 확대 유지.
+    [ObservableProperty]
+    private int _waveformResetView;
+
     public string PlayPauseLabel => IsPlaying ? "❚❚ 일시정지" : "▶ 재생";
 
     private bool HasDocument => _document is { FrameCount: > 0 };
@@ -124,6 +132,7 @@ public partial class MainWindowViewModel : ObservableObject
             EndSeconds = document.Duration.TotalSeconds;
             Peaks = peaks;
             PlayPositionSeconds = 0;
+            WaveformResetView++;
             _player.LoadSamples(document.Samples, document.SampleRate, document.Channels);
 
             Status = $"불러옴 · {document.Duration:mm\\:ss} · {document.SampleRate / 1000.0:0.#}kHz · {document.Channels}ch";
