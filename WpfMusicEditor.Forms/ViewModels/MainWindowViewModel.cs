@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
+using WpfMusicEditor.Forms.Services;
 using WpfMusicEditor.Main.Audio;
 
 namespace WpfMusicEditor.Forms.ViewModels;
@@ -12,20 +13,42 @@ public partial class MainWindowViewModel : ObservableObject
 {
     private readonly IAudioEditor _editor;
     private readonly AudioPlayer _player;
+    private readonly UpdateService _updateService;
     private readonly DispatcherTimer _cursorTimer;
 
     private AudioDocument? _document;
     private bool _suppressCursorSeek;
     private double _playbackEnd;
 
-    public MainWindowViewModel(IAudioEditor editor, AudioPlayer player)
+    public MainWindowViewModel(IAudioEditor editor, AudioPlayer player, UpdateService updateService)
     {
         _editor = editor;
         _player = player;
+        _updateService = updateService;
         _player.PlaybackStopped += OnPlaybackStopped;
 
         _cursorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         _cursorTimer.Tick += OnCursorTick;
+    }
+
+    /// <summary>창 로드 시 호출. 새 버전이 있으면 내려받고 재시작 여부를 묻는다.</summary>
+    public async Task CheckForUpdateAsync()
+    {
+        var newVersion = await _updateService.CheckForUpdateAsync();
+        if (newVersion == null)
+            return;
+
+        Status = $"새 버전 {newVersion} 다운로드 중...";
+        await _updateService.DownloadUpdateAsync(p => Status = $"업데이트 다운로드 중... {p}%");
+
+        var result = MessageBox.Show(
+            $"버전 {newVersion}으로 업데이트할 준비가 됐습니다.\n지금 재시작하시겠습니까?",
+            "업데이트", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+        if (result == MessageBoxResult.Yes)
+            _updateService.ApplyUpdateAndRestart();
+        else
+            Status = "업데이트 준비 완료 (다음 재시작 시 적용)";
     }
 
     public IReadOnlyList<AudioFormat> Formats { get; } = Enum.GetValues<AudioFormat>();

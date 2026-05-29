@@ -1,0 +1,65 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Get version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $parts = $version.Split('.')
+          while ($parts.Count -lt 3) { $parts += '0' }
+          $version = $parts -join '.'
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore WpfMusicEditor/WpfMusicEditor.csproj
+
+      - name: Publish
+        run: dotnet publish WpfMusicEditor/WpfMusicEditor.csproj -c Release -o publish --no-restore -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }} -p:FileVersion=${{ steps.version.outputs.version }}
+
+      - name: Install vpk
+        # CLI와 라이브러리(Velopack 0.0.1298) 버전 일치시켜 호환성 문제 회피
+        run: dotnet tool install -g vpk --version 0.0.1298
+
+      - name: Download previous release for delta updates
+        shell: pwsh
+        run: vpk download github --repoUrl https://github.com/Kyeongrok/music-editor --token ${{ secrets.GITHUB_TOKEN }} --outputDir releases
+        continue-on-error: true
+
+      - name: Pack with Velopack
+        # --mainExe: Setup.exe bootstrapper 생성에 필요한 entry point exe.
+        # --packTitle / --packAuthors: 설치 UI/시작 메뉴 표시 이름.
+        run: vpk pack --packId WpfMusicEditor --packTitle "WpfMusicEditor" --packAuthors "Kyeongrok" --packVersion ${{ steps.version.outputs.version }} --packDir publish --mainExe WpfMusicEditor.exe --outputDir releases
+
+      - name: List releases folder (debug)
+        shell: pwsh
+        run: |
+          Write-Host "=== releases 폴더 내용 ==="
+          Get-ChildItem -Path releases -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          Write-Host "=== Setup.exe 존재 여부 ==="
+          $setup = Get-ChildItem -Path releases -Filter "*Setup.exe" -Recurse
+          if ($setup) { Write-Host "Setup.exe 발견: $($setup.FullName)" } else { Write-Host "Setup.exe 없음" }
+
+      - name: Upload to GitHub Releases
+        # --publish: draft가 아닌 정식 릴리즈로 업로드.
+        # --merge: tag push로 자동 생성된 빈 릴리즈에 에셋 병합.
+        run: vpk upload github --repoUrl https://github.com/Kyeongrok/music-editor --token ${{ secrets.GITHUB_TOKEN }} --tag ${{ github.ref_name }} --releaseName "${{ github.ref_name }}" --outputDir releases --publish --merge

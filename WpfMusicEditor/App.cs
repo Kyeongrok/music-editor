@@ -2,6 +2,7 @@ using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using WpfMusicEditor.Forms;
+using WpfMusicEditor.Forms.Services;
 using WpfMusicEditor.Forms.UI.Views;
 using WpfMusicEditor.Forms.ViewModels;
 using WpfMusicEditor.Main.Audio;
@@ -42,6 +43,7 @@ public class App : Application
     {
         services.AddSingleton<IAudioEditor, NAudioEditor>();
         services.AddSingleton<AudioPlayer>();
+        services.AddSingleton<UpdateService>();
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<MainWindow>();
     }

@@ -14,5 +14,6 @@
     <ItemGroup>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.*" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.*" />
+        <PackageReference Include="Velopack" Version="0.0.1298" />
     </ItemGroup>
 </Project>

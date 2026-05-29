@@ -64,6 +64,10 @@ TestResults/
 Thumbs.db
 desktop.ini
 
+## Publish / Velopack release artifacts
+publish/
+releases/
+
 ## App-specific temp / local artifacts
 *.tmp
 _screenshot.png

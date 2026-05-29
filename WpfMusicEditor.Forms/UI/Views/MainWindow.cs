@@ -14,12 +14,17 @@ public class MainWindow : WpfMusicEditorWindow
             new FrameworkPropertyMetadata(typeof(MainWindow)));
     }
 
+    private readonly MainWindowViewModel _viewModel;
+
     public MainWindow(MainWindowViewModel viewModel)
     {
+        _viewModel = viewModel;
         DataContext = viewModel;
 
         // Ctrl+Z → 실행 취소
         InputBindings.Add(new KeyBinding(viewModel.UndoCommand, Key.Z, ModifierKeys.Control));
+
+        Loaded += async (_, _) => await _viewModel.CheckForUpdateAsync();
     }
 
     public override void OnApplyTemplate()
