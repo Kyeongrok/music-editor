@@ -33,6 +33,9 @@ public partial class MainWindowViewModel : ObservableObject
         _updateService = updateService;
         _player.PlaybackStopped += OnPlaybackStopped;
 
+        // NVIDIA/CUDA GPU가 없으면 STT가 CPU로 동작해 매우 느리므로 상단에 경고를 띄운다.
+        ShowGpuWarning = !HasCudaGpu();
+
         _cursorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         _cursorTimer.Tick += OnCursorTick;
 
@@ -63,6 +66,22 @@ public partial class MainWindowViewModel : ObservableObject
             _updateService.ApplyUpdateAndRestart();
         else
             Status = "업데이트 준비 완료 (다음 재시작 시 적용)";
+    }
+
+    /// <summary>NVIDIA/CUDA GPU가 없어 STT가 CPU로만 동작할 때 true. 상단 경고 배너에 바인딩된다.</summary>
+    public bool ShowGpuWarning { get; }
+
+    // NVIDIA 드라이버가 깔리면 System32에 nvcuda.dll이 생긴다. 이를 GPU 가용성의 가벼운 판단 기준으로 쓴다.
+    private static bool HasCudaGpu()
+    {
+        try
+        {
+            return File.Exists(Path.Combine(Environment.SystemDirectory, "nvcuda.dll"));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public IReadOnlyList<AudioFormat> Formats { get; } = Enum.GetValues<AudioFormat>();
