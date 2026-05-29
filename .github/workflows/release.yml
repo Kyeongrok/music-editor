@@ -36,6 +36,14 @@ jobs:
       - name: Publish
         run: dotnet publish WpfMusicEditor/WpfMusicEditor.csproj -c Release -o publish --no-restore -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }} -p:FileVersion=${{ steps.version.outputs.version }}
 
+      - name: Publish portable (self-contained)
+        # 설치 없이 압축만 풀어 실행하는 포터블 빌드. self-contained라 .NET 런타임이 없어도 동작한다.
+        run: dotnet publish WpfMusicEditor/WpfMusicEditor.csproj -c Release -o publish-portable --no-restore --self-contained true -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }} -p:FileVersion=${{ steps.version.outputs.version }}
+
+      - name: Zip portable
+        shell: pwsh
+        run: Compress-Archive -Path publish-portable/* -DestinationPath WpfMusicEditor-${{ steps.version.outputs.version }}-portable-win-x64.zip -Force
+
       - name: Install vpk
         # CLI와 라이브러리(Velopack 0.0.1298) 버전 일치시켜 호환성 문제 회피
         run: dotnet tool install -g vpk --version 0.0.1298
@@ -63,3 +71,10 @@ jobs:
         # --publish: draft가 아닌 정식 릴리즈로 업로드.
         # --merge: tag push로 자동 생성된 빈 릴리즈에 에셋 병합.
         run: vpk upload github --repoUrl https://github.com/Kyeongrok/music-editor --token ${{ secrets.GITHUB_TOKEN }} --tag ${{ github.ref_name }} --releaseName "${{ github.ref_name }}" --outputDir releases --publish --merge
+
+      - name: Upload portable zip to GitHub Release
+        # vpk가 릴리즈를 만든 뒤(--publish), 포터블 zip을 같은 릴리즈에 추가한다.
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} WpfMusicEditor-${{ steps.version.outputs.version }}-portable-win-x64.zip --repo Kyeongrok/music-editor --clobber
