@@ -186,6 +186,7 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <!--  상단: GPU 경고 배너 + 파일 열기  -->
@@ -375,8 +376,74 @@
                                         Style="{StaticResource AccentButton}" />
                                 </Grid>
 
-                                <!--  음성 인식: 선택 구간 전사  -->
+                                <!--  음색 변환 (RVC, .onnx 모델)  -->
                                 <Grid Grid.Row="5" Margin="0,16,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid Grid.Row="0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="64" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <Button
+                                                Command="{Binding PickVoiceModelCommand}"
+                                                Content="📂 모델…"
+                                                Style="{StaticResource GhostButton}"
+                                                ToolTip="타깃 목소리로 학습·export한 RVC generator(.onnx)를 고릅니다 (docs/voice-conversion.md 참고)" />
+                                            <Button
+                                                Margin="6,0,0,0"
+                                                Command="{Binding OpenTrainingCommand}"
+                                                Content="🎓 모델 만들기"
+                                                Style="{StaticResource GhostButton}"
+                                                ToolTip="내 녹음 파일로 새 음색 모델을 학습합니다(RVC 필요)" />
+                                        </StackPanel>
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            Margin="8,0,8,0"
+                                            VerticalAlignment="Center"
+                                            Style="{StaticResource Label}"
+                                            Text="{Binding VoiceModelName}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTip="{Binding VoiceModelPath}" />
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            Margin="0,0,8,0"
+                                            Style="{StaticResource Label}"
+                                            Text="반음" />
+                                        <TextBox
+                                            Grid.Column="3"
+                                            Style="{StaticResource DarkTextBox}"
+                                            Text="{Binding SemitoneShift, UpdateSourceTrigger=PropertyChanged}"
+                                            ToolTip="피치 시프트(반음). 0이면 원래 음높이 유지. 남→여 변환 시 +12 등으로 올립니다" />
+                                        <Button
+                                            Grid.Column="4"
+                                            Margin="8,0,0,0"
+                                            Command="{Binding ConvertVoiceCommand}"
+                                            Content="🎤 음색 변환"
+                                            Style="{StaticResource AccentButton}"
+                                            ToolTip="드래그한 구간의 음색을 선택한 모델 목소리로 바꿉니다. 발음·타이밍은 유지됩니다 (Ctrl+Z로 실행 취소)" />
+                                    </Grid>
+                                    <ProgressBar
+                                        Grid.Row="1"
+                                        Height="6"
+                                        Margin="0,8,0,0"
+                                        Background="#252526"
+                                        BorderThickness="0"
+                                        Foreground="#0078D4"
+                                        Maximum="100"
+                                        Minimum="0"
+                                        Value="{Binding ConvertVoiceProgress}"
+                                        Visibility="{Binding IsConvertingVoice, Converter={StaticResource BoolToVis}}" />
+                                </Grid>
+
+                                <!--  음성 인식: 선택 구간 전사  -->
+                                <Grid Grid.Row="6" Margin="0,16,0,0">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -449,7 +516,7 @@
                                 </Grid>
 
                                 <!--  출력 포맷  -->
-                                <Grid Grid.Row="6" Margin="0,18,0,0">
+                                <Grid Grid.Row="7" Margin="0,18,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="160" />
@@ -468,7 +535,7 @@
 
                                 <!--  상태  -->
                                 <TextBlock
-                                    Grid.Row="7"
+                                    Grid.Row="8"
                                     Margin="0,12,0,0"
                                     VerticalAlignment="Bottom"
                                     Style="{StaticResource Label}"
@@ -477,7 +544,7 @@
 
                                 <!--  내보내기  -->
                                 <Button
-                                    Grid.Row="8"
+                                    Grid.Row="9"
                                     Margin="0,12,0,0"
                                     HorizontalAlignment="Right"
                                     Command="{Binding ExportCommand}"

@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using WpfMusicEditor.Forms.Services;
+using WpfMusicEditor.Forms.UI.Views;
 using WpfMusicEditor.Main.Audio;
 using WpfMusicEditor.Support.UI.Units;
 
@@ -16,6 +17,8 @@ public partial class MainWindowViewModel : ObservableObject
 {
     private readonly IAudioEditor _editor;
     private readonly ISpeechRecognizer _recognizer;
+    private readonly IVoiceConverter _converter;
+    private readonly TrainingViewModel _training;
     private readonly AudioPlayer _player;
     private readonly UpdateService _updateService;
     private readonly DispatcherTimer _cursorTimer;
@@ -25,12 +28,18 @@ public partial class MainWindowViewModel : ObservableObject
     private double _playbackEnd;
 
     public MainWindowViewModel(IAudioEditor editor, ISpeechRecognizer recognizer,
+        IVoiceConverter converter, TrainingViewModel training,
         AudioPlayer player, UpdateService updateService)
     {
         _editor = editor;
         _recognizer = recognizer;
+        _converter = converter;
+        _training = training;
         _player = player;
         _updateService = updateService;
+
+        // 학습이 끝나면 새 모델을 음색 변환에 바로 쓰도록 선택해 둔다.
+        _training.ModelCreated += path => VoiceModelPath = path;
         _player.PlaybackStopped += OnPlaybackStopped;
 
         // NVIDIA/CUDA GPU가 없으면 STT가 CPU로 동작해 매우 느리므로 상단에 경고를 띄운다.
@@ -96,17 +105,41 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConvertVoiceCommand))]
     private double _startSeconds;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConvertVoiceCommand))]
     private double _endSeconds;
 
     // 구간 볼륨을 키울/줄일 양(dB). 양수면 키우고 음수면 줄인다.
     [ObservableProperty]
     private double _gainDb = 6;
+
+    // 음색 변환용 RVC generator(.onnx) 경로. 비어 있으면 변환 버튼이 비활성.
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConvertVoiceCommand))]
+    [NotifyPropertyChangedFor(nameof(VoiceModelName))]
+    private string _voiceModelPath = "";
+
+    // 변환 시 피치 시프트(반음). 0이면 원래 음높이 유지.
+    [ObservableProperty]
+    private int _semitoneShift;
+
+    // 음색 변환 중 여부(진행 표시·재진입 방지용). 변환은 IsBusy로도 다른 편집을 막는다.
+    [ObservableProperty]
+    private bool _isConvertingVoice;
+
+    // 음색 변환 진행률(0~100). 프로그레스바에 바인딩된다.
+    [ObservableProperty]
+    private double _convertVoiceProgress;
+
+    /// <summary>선택된 모델 파일명(표시용). 미선택이면 안내 문구.</summary>
+    public string VoiceModelName =>
+        string.IsNullOrEmpty(VoiceModelPath) ? "(모델 선택 안 됨)" : Path.GetFileName(VoiceModelPath);
 
     // 선택 구간 전사 결과(타임스탬프 포함). 전사할 때마다 줄 단위로 누적되며
     // 목록에서 여러 줄을 선택해 ↑↓로 순서를 바꿀 수 있다.
@@ -119,6 +152,7 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConvertVoiceCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportCommand))]
     private bool _isTranscribing;
@@ -138,6 +172,7 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConvertVoiceCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
     private bool _isBusy;
 
@@ -210,6 +245,15 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>음색 모델 학습 창을 연다.</summary>
+    [RelayCommand]
+    private void OpenTraining()
+    {
+        var window = AppServices.GetRequired<TrainingWindow>();
+        window.Owner = Application.Current?.MainWindow;
+        window.Show();
+    }
+
     private bool CanInteract() => !IsBusy && !IsTranscribing;
 
     private bool CanPlay() => !IsBusy && HasDocument;
@@ -263,6 +307,70 @@ public partial class MainWindowViewModel : ObservableObject
         }
         finally
         {
+            IsBusy = false;
+        }
+    }
+
+    // ── 편집: 음색 변환 ──────────────────────────────────────────
+
+    /// <summary>RVC generator(.onnx) 파일을 고른다.</summary>
+    [RelayCommand]
+    private void PickVoiceModel()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "음색 변환 모델(.onnx) 선택",
+            Filter = "ONNX 모델 (*.onnx)|*.onnx|모든 파일 (*.*)|*.*"
+        };
+        if (dialog.ShowDialog() == true)
+            VoiceModelPath = dialog.FileName;
+    }
+
+    private bool CanConvertVoice() =>
+        !IsBusy && !IsTranscribing && HasDocument && EndSeconds > StartSeconds
+        && !string.IsNullOrEmpty(VoiceModelPath) && File.Exists(VoiceModelPath);
+
+    [RelayCommand(CanExecute = nameof(CanConvertVoice))]
+    private async Task ConvertVoiceAsync()
+    {
+        StopPlayback();
+        IsBusy = true;
+        IsConvertingVoice = true;
+        ConvertVoiceProgress = 0;
+        try
+        {
+            var start = StartSeconds;
+            var end = EndSeconds;
+            var region = _document!.CopyRange(TimeSpan.FromSeconds(start), TimeSpan.FromSeconds(end));
+            var sampleRate = _document.SampleRate;
+            var channels = _document.Channels;
+            var modelPath = VoiceModelPath;
+            var shift = SemitoneShift;
+
+            var progress = new Progress<string>(s => Status = s);
+            var percent = new Progress<double>(p => ConvertVoiceProgress = p);
+
+            // ONNX 추론은 무거우므로 백그라운드에서 돌린다.
+            var converted = await Task.Run(() => _converter.ConvertAsync(
+                region, sampleRate, channels, modelPath, shift, progress, percent));
+
+            _document.ReplaceRange(TimeSpan.FromSeconds(start), TimeSpan.FromSeconds(end), converted);
+
+            await RefreshAfterEditAsync(start);
+            StartSeconds = Math.Clamp(start, 0, DurationSeconds);
+            EndSeconds = Math.Clamp(end, 0, DurationSeconds);
+
+            var shiftText = shift == 0 ? "" : $" · {shift:+0;-0}반음";
+            Status = $"음색 변환 완료 · {Path.GetFileName(modelPath)}{shiftText} · {start:0.##}~{end:0.##}초 (Ctrl+Z로 실행 취소)";
+        }
+        catch (Exception ex)
+        {
+            Status = $"음색 변환 실패: {ex.Message}";
+            MessageBox.Show(ex.Message, "음색 변환 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsConvertingVoice = false;
             IsBusy = false;
         }
     }
@@ -392,6 +500,7 @@ public partial class MainWindowViewModel : ObservableObject
         CutCommand.NotifyCanExecuteChanged();
         ApplyGainCommand.NotifyCanExecuteChanged();
         TranscribeCommand.NotifyCanExecuteChanged();
+        ConvertVoiceCommand.NotifyCanExecuteChanged();
         UndoCommand.NotifyCanExecuteChanged();
         ExportCommand.NotifyCanExecuteChanged();
         PlayPauseCommand.NotifyCanExecuteChanged();

@@ -21,4 +21,11 @@
     <ItemGroup>
         <ProjectReference Include="..\WpfMusicEditor.Forms\WpfMusicEditor.Forms.csproj" />
     </ItemGroup>
+
+    <ItemGroup>
+        <!-- 음색 모델 학습 드라이버. 출력 폴더의 tools\ 로 복사돼 런타임에 RVC를 구동한다. -->
+        <None Include="..\tools\rvc_pipeline.py" Link="tools\rvc_pipeline.py">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
 </Project>
