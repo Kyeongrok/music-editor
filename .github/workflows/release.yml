@@ -38,7 +38,9 @@ jobs:
 
       - name: Publish portable (self-contained)
         # 설치 없이 압축만 풀어 실행하는 포터블 빌드. self-contained라 .NET 런타임이 없어도 동작한다.
-        run: dotnet publish WpfMusicEditor/WpfMusicEditor.csproj -c Release -o publish-portable --no-restore --self-contained true -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }} -p:FileVersion=${{ steps.version.outputs.version }}
+        # 공유 Restore는 framework-dependent 기준이라 self-contained용 런타임 팩이 없다.
+        # 그래서 여기서는 --no-restore를 빼고 win-x64 런타임 팩을 직접 받도록 둔다 (NETSDK1112 방지).
+        run: dotnet publish WpfMusicEditor/WpfMusicEditor.csproj -c Release -o publish-portable --self-contained true -p:Version=${{ steps.version.outputs.version }} -p:AssemblyVersion=${{ steps.version.outputs.version }} -p:FileVersion=${{ steps.version.outputs.version }}
 
       - name: Zip portable
         shell: pwsh
