@@ -24,4 +24,14 @@ public interface IVoiceTrainer
         IProgress<string>? progress = null,
         IProgress<double>? percentProgress = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 학습 없이, 기존 RVC <c>.pth</c> 모델을 <c>.onnx</c>로 변환해 models 폴더에 등록한다.
+    /// 받은 .pth 목소리를 바로 음색 변환에 쓸 수 있게 해 준다.
+    /// </summary>
+    /// <returns>models 폴더에 등록된 <c>.onnx</c> 경로.</returns>
+    Task<string> ExportOnnxAsync(
+        string pthPath, string modelName,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default);
 }

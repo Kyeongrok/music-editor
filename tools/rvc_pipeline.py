@@ -108,13 +108,14 @@ def export_onnx(rvc_root, pth_path, out_path, version):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rvc-root", required=True)
-    ap.add_argument("--dataset", required=True)
+    ap.add_argument("--dataset", default=None)   # 학습 모드에서 필요
     ap.add_argument("--name", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--sr", default="40k")
     ap.add_argument("--version", default="v2")
     ap.add_argument("--epochs", type=int, default=150)
     ap.add_argument("--batch", type=int, default=7)
+    ap.add_argument("--pth", default=None)        # 지정 시 학습을 건너뛰고 이 .pth만 ONNX로 export
     args = ap.parse_args()
 
     now = os.path.abspath(args.rvc_root)
@@ -125,8 +126,23 @@ def main():
     srn = {"32k": 32000, "40k": 40000, "48k": 48000}[sr2]
     ver = args.version
     logs = os.path.join(now, "logs", exp)
-    os.makedirs(logs, exist_ok=True)
     TOTAL_EPOCHS[0] = args.epochs
+
+    # ── export 전용 모드: 받은 .pth를 학습 없이 ONNX로 변환 ──
+    if args.pth:
+        try:
+            emit("@@STAGE", "export")
+            export_onnx(now, args.pth, args.out, ver)
+            emit("@@DONE", args.out)
+        except Exception as e:
+            emit("@@ERROR", str(e))
+            raise
+        return
+
+    os.makedirs(logs, exist_ok=True)
+    if not args.dataset:
+        emit("@@ERROR", "학습에는 --dataset 이 필요합니다.")
+        raise SystemExit(2)
 
     try:
         emit("@@STAGE", "preprocess")

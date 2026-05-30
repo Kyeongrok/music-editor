@@ -264,9 +264,14 @@ public sealed class RvcVoiceConverter : IVoiceConverter, IDisposable
 
     // ── generator ────────────────────────────────────────────────
 
+    // 윈도우 감지용 프로브 길이. 고정 길이 모델이면 이 작은 길이에서 바로 실패해
+    // 윈도우를 역산하므로, 긴 구간이라도 거대 텐서를 만들지 않는다(흔한 RVC 윈도우 200과 다른 값).
+    private const int WindowProbeFrames = 256;
+
     /// <summary>
     /// generator 실행. 동적 export 모델은 전체를 한 번에, 고정 길이 export 모델은
     /// 고정 윈도우로 청크 추론한다(상대위치 어텐션이 고정 길이로 굳은 모델 대응).
+    /// 윈도우는 작은 길이 프로브로 싸게 감지한다(긴 구간 OOM/지연 방지).
     /// </summary>
     private (float[] wave, int sampleRate) RunGeneratorAdaptive(
         string modelPath, InferenceSession session, float[] featsUp, int pLen, int dim,
@@ -278,14 +283,24 @@ public sealed class RvcVoiceConverter : IVoiceConverter, IDisposable
 
         if (!known)
         {
-            // 첫 시도: 전체 길이로 실행. 동적 모델이면 그대로 성공한다.
+            // 작은 길이로만 먼저 돌려 윈도우를 감지한다.
+            var probeLen = Math.Min(pLen, WindowProbeFrames);
+            var pf = new float[probeLen * dim];
+            Array.Copy(featsUp, 0, pf, 0, probeLen * dim);
+            var pp = new long[probeLen];
+            Array.Copy(pitch, 0, pp, 0, probeLen);
+            var ppf = new float[probeLen];
+            Array.Copy(pitchf, 0, ppf, 0, probeLen);
+
             try
             {
-                var r = RunGeneratorWindow(session, featsUp, pLen, dim, pitch, pitchf);
+                var probe = RunGeneratorWindow(session, pf, probeLen, dim, pp, ppf);
                 lock (_genWindow) _genWindow[modelPath] = -1; // 동적 확정
-                return r;
+                window = -1;
+                if (probeLen == pLen)
+                    return probe; // 구간 전체가 프로브에 들어갔으면 그대로 사용
             }
-            catch (OnnxRuntimeException ex) when (TryParseFixedWindow(ex.Message, pLen, out window))
+            catch (OnnxRuntimeException ex) when (TryParseFixedWindow(ex.Message, probeLen, out window))
             {
                 lock (_genWindow) _genWindow[modelPath] = window;
                 progress?.Report($"고정 길이 모델 감지(윈도우 {window}프레임) · 청크 단위로 변환합니다");
@@ -293,7 +308,18 @@ public sealed class RvcVoiceConverter : IVoiceConverter, IDisposable
         }
 
         if (window <= 0)
-            return RunGeneratorWindow(session, featsUp, pLen, dim, pitch, pitchf);
+        {
+            // 동적으로 봤지만(드물게 윈도우==프로브 길이) 전체 실행이 실패하면 다시 감지해 청크로 전환.
+            try
+            {
+                return RunGeneratorWindow(session, featsUp, pLen, dim, pitch, pitchf);
+            }
+            catch (OnnxRuntimeException ex) when (TryParseFixedWindow(ex.Message, pLen, out window))
+            {
+                lock (_genWindow) _genWindow[modelPath] = window;
+                progress?.Report($"고정 길이 모델 감지(윈도우 {window}프레임) · 청크 단위로 변환합니다");
+            }
+        }
         return RunGeneratorChunked(session, featsUp, pLen, dim, pitch, pitchf, window, progress);
     }
 

@@ -18,6 +18,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IAudioEditor _editor;
     private readonly ISpeechRecognizer _recognizer;
     private readonly IVoiceConverter _converter;
+    private readonly IVoiceTrainer _trainer;
     private readonly TrainingViewModel _training;
     private readonly AudioPlayer _player;
     private readonly UpdateService _updateService;
@@ -28,12 +29,13 @@ public partial class MainWindowViewModel : ObservableObject
     private double _playbackEnd;
 
     public MainWindowViewModel(IAudioEditor editor, ISpeechRecognizer recognizer,
-        IVoiceConverter converter, TrainingViewModel training,
+        IVoiceConverter converter, IVoiceTrainer trainer, TrainingViewModel training,
         AudioPlayer player, UpdateService updateService)
     {
         _editor = editor;
         _recognizer = recognizer;
         _converter = converter;
+        _trainer = trainer;
         _training = training;
         _player = player;
         _updateService = updateService;
@@ -252,6 +254,40 @@ public partial class MainWindowViewModel : ObservableObject
         var window = AppServices.GetRequired<TrainingWindow>();
         window.Owner = Application.Current?.MainWindow;
         window.Show();
+    }
+
+    /// <summary>기존 RVC .pth 모델을 .onnx로 변환해 바로 쓸 수 있게 한다(학습 없이).</summary>
+    [RelayCommand(CanExecute = nameof(CanInteract))]
+    private async Task ImportPthAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "RVC .pth 모델 선택",
+            Filter = "RVC 모델 (*.pth)|*.pth|모든 파일 (*.*)|*.*"
+        };
+        if (dialog.ShowDialog() != true)
+            return;
+
+        StopPlayback();
+        IsBusy = true;
+        try
+        {
+            var name = Path.GetFileNameWithoutExtension(dialog.FileName);
+            Status = $".pth → ONNX 변환 중... ({name})";
+            var progress = new Progress<string>(s => Status = s);
+            var onnx = await _trainer.ExportOnnxAsync(dialog.FileName, name, progress);
+            VoiceModelPath = onnx;
+            Status = $".pth 변환 완료 · {Path.GetFileName(onnx)} (모델로 선택됨)";
+        }
+        catch (Exception ex)
+        {
+            Status = $".pth 변환 실패: {ex.Message}";
+            MessageBox.Show(ex.Message, ".pth 변환 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     private bool CanInteract() => !IsBusy && !IsTranscribing;

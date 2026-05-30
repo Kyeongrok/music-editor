@@ -28,17 +28,63 @@ public sealed class RvcVoiceTrainer : IVoiceTrainer
         var name = Sanitize(modelName);
         if (string.IsNullOrEmpty(name))
             throw new ArgumentException("모델 이름이 비어 있습니다.", nameof(modelName));
-        if (string.IsNullOrWhiteSpace(_settings.RvcRoot) || !Directory.Exists(_settings.RvcRoot))
-            throw new DirectoryNotFoundException("RVC 폴더가 설정되지 않았습니다. 학습 설정에서 RVC 경로를 지정하세요.");
-        if (string.IsNullOrWhiteSpace(_settings.PythonPath) || !File.Exists(_settings.PythonPath))
-            throw new FileNotFoundException("Python 실행 파일이 설정되지 않았습니다. 학습 설정에서 python.exe 경로를 지정하세요.");
-        if (!File.Exists(DriverScript))
-            throw new FileNotFoundException("학습 드라이버(rvc_pipeline.py)를 찾을 수 없습니다.", DriverScript);
+        ValidateEnv();
         if (!Directory.Exists(datasetDir) || Directory.GetFiles(datasetDir, "*.wav").Length == 0)
             throw new DirectoryNotFoundException("데이터셋(wav) 폴더가 비어 있습니다.");
 
         var outPath = Path.Combine(AppSettings.ModelsDir, name + ".onnx");
+        var args = new List<string>
+        {
+            "--rvc-root", _settings.RvcRoot!,
+            "--dataset", datasetDir,
+            "--name", name,
+            "--out", outPath,
+            "--sr", options.SampleRate,
+            "--version", options.Version,
+            "--epochs", options.Epochs.ToString(),
+            "--batch", options.BatchSize.ToString(),
+        };
+        return await RunDriverAsync(args, "학습", progress, percentProgress, cancellationToken);
+    }
 
+    public async Task<string> ExportOnnxAsync(
+        string pthPath, string modelName,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var name = Sanitize(modelName);
+        if (string.IsNullOrEmpty(name))
+            throw new ArgumentException("모델 이름이 비어 있습니다.", nameof(modelName));
+        ValidateEnv();
+        if (string.IsNullOrWhiteSpace(pthPath) || !File.Exists(pthPath))
+            throw new FileNotFoundException(".pth 모델 파일을 찾을 수 없습니다.", pthPath);
+
+        var outPath = Path.Combine(AppSettings.ModelsDir, name + ".onnx");
+        var args = new List<string>
+        {
+            "--rvc-root", _settings.RvcRoot!,
+            "--name", name,
+            "--out", outPath,
+            "--pth", pthPath,
+        };
+        return await RunDriverAsync(args, "ONNX 변환", progress, null, cancellationToken);
+    }
+
+    private void ValidateEnv()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.RvcRoot) || !Directory.Exists(_settings.RvcRoot))
+            throw new DirectoryNotFoundException("RVC 폴더가 설정되지 않았습니다. 🎓 모델 만들기에서 RVC 경로를 지정하세요.");
+        if (string.IsNullOrWhiteSpace(_settings.PythonPath) || !File.Exists(_settings.PythonPath))
+            throw new FileNotFoundException("Python 실행 파일이 설정되지 않았습니다. 🎓 모델 만들기에서 python.exe 경로를 지정하세요.");
+        if (!File.Exists(DriverScript))
+            throw new FileNotFoundException("드라이버(rvc_pipeline.py)를 찾을 수 없습니다.", DriverScript);
+    }
+
+    /// <summary>드라이버(rvc_pipeline.py)를 실행하고 '@@' 마커로 진행을 파싱한다. 성공 시 결과 .onnx 경로.</summary>
+    private async Task<string> RunDriverAsync(
+        IReadOnlyList<string> driverArgs, string failVerb,
+        IProgress<string>? progress, IProgress<double>? percentProgress, CancellationToken cancellationToken)
+    {
         var psi = new ProcessStartInfo
         {
             FileName = _settings.PythonPath,
@@ -51,14 +97,8 @@ public sealed class RvcVoiceTrainer : IVoiceTrainer
             StandardErrorEncoding = Encoding.UTF8,
         };
         psi.ArgumentList.Add(DriverScript);
-        psi.ArgumentList.Add("--rvc-root"); psi.ArgumentList.Add(_settings.RvcRoot!);
-        psi.ArgumentList.Add("--dataset"); psi.ArgumentList.Add(datasetDir);
-        psi.ArgumentList.Add("--name"); psi.ArgumentList.Add(name);
-        psi.ArgumentList.Add("--out"); psi.ArgumentList.Add(outPath);
-        psi.ArgumentList.Add("--sr"); psi.ArgumentList.Add(options.SampleRate);
-        psi.ArgumentList.Add("--version"); psi.ArgumentList.Add(options.Version);
-        psi.ArgumentList.Add("--epochs"); psi.ArgumentList.Add(options.Epochs.ToString());
-        psi.ArgumentList.Add("--batch"); psi.ArgumentList.Add(options.BatchSize.ToString());
+        foreach (var a in driverArgs)
+            psi.ArgumentList.Add(a);
 
         // PYTHONIOENCODING로 자식 프로세스 출력 인코딩을 UTF-8로 고정(한글/마커 깨짐 방지).
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
@@ -126,7 +166,7 @@ public sealed class RvcVoiceTrainer : IVoiceTrainer
 
         var detail = errorMessage ?? string.Join("\n", tail);
         throw new InvalidOperationException(
-            $"학습에 실패했습니다 (exit {process.ExitCode}).\n{detail}");
+            $"{failVerb}에 실패했습니다 (exit {process.ExitCode}).\n{detail}");
     }
 
     /// <summary>취소 시 파이썬 자식까지 포함해 프로세스 트리를 종료한다.</summary>

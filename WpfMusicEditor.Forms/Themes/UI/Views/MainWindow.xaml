@@ -398,6 +398,12 @@
                                                 ToolTip="타깃 목소리로 학습·export한 RVC generator(.onnx)를 고릅니다 (docs/voice-conversion.md 참고)" />
                                             <Button
                                                 Margin="6,0,0,0"
+                                                Command="{Binding ImportPthCommand}"
+                                                Content="📥 .pth 변환"
+                                                Style="{StaticResource GhostButton}"
+                                                ToolTip="받은 RVC .pth 목소리 모델을 .onnx로 변환해 바로 사용합니다(RVC 필요)" />
+                                            <Button
+                                                Margin="6,0,0,0"
                                                 Command="{Binding OpenTrainingCommand}"
                                                 Content="🎓 모델 만들기"
                                                 Style="{StaticResource GhostButton}"
