@@ -161,8 +161,21 @@
 
                             <!--  Title Bar  -->
                             <Grid Grid.Row="0" Background="#2D2D2D">
+                                <Menu
+                                    Margin="4,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Background="Transparent">
+                                    <MenuItem
+                                        Padding="8,2"
+                                        FontSize="16"
+                                        Foreground="#CCCCCC"
+                                        Header="☰">
+                                        <MenuItem Command="{Binding OpenSettingsCommand}" Header="⚙ 설정" />
+                                    </MenuItem>
+                                </Menu>
                                 <TextBlock
-                                    Margin="12,0,0,0"
+                                    Margin="44,0,0,0"
                                     VerticalAlignment="Center"
                                     FontSize="13"
                                     Foreground="#CCCCCC"

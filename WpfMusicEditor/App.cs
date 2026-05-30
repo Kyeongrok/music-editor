@@ -52,6 +52,8 @@ public class App : Application
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<TrainingViewModel>();
         services.AddTransient<TrainingWindow>();
+        services.AddSingleton<SettingsViewModel>();
+        services.AddTransient<SettingsWindow>();
         services.AddSingleton<MainWindow>();
     }
 }

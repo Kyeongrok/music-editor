@@ -247,6 +247,15 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>설정 창을 연다(햄버거 메뉴 → 설정).</summary>
+    [RelayCommand]
+    private void OpenSettings()
+    {
+        var window = AppServices.GetRequired<SettingsWindow>();
+        window.Owner = Application.Current?.MainWindow;
+        window.ShowDialog();
+    }
+
     /// <summary>음색 모델 학습 창을 연다.</summary>
     [RelayCommand]
     private void OpenTraining()

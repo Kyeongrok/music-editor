@@ -15,6 +15,20 @@ public sealed class AppSettings
     /// <summary>학습에 쓸 Python 실행 파일(보통 RVC venv/runtime의 python.exe).</summary>
     public string? PythonPath { get; set; }
 
+    /// <summary>만든 모델(.onnx)을 저장할 폴더. 비어 있으면 기본 위치(<see cref="ModelsDir"/>)를 쓴다.</summary>
+    public string? ModelsDirectory { get; set; }
+
+    /// <summary>만든 모델을 실제로 저장할 폴더. 설정값이 있으면 그곳, 없으면 기본 위치.</summary>
+    public string EffectiveModelsDir
+    {
+        get
+        {
+            var dir = string.IsNullOrWhiteSpace(ModelsDirectory) ? ModelsDir : ModelsDirectory!;
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
     public static string AppDataDir
     {
         get

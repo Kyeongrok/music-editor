@@ -32,7 +32,7 @@ public sealed class RvcVoiceTrainer : IVoiceTrainer
         if (!Directory.Exists(datasetDir) || Directory.GetFiles(datasetDir, "*.wav").Length == 0)
             throw new DirectoryNotFoundException("데이터셋(wav) 폴더가 비어 있습니다.");
 
-        var outPath = Path.Combine(AppSettings.ModelsDir, name + ".onnx");
+        var outPath = Path.Combine(_settings.EffectiveModelsDir, name + ".onnx");
         var args = new List<string>
         {
             "--rvc-root", _settings.RvcRoot!,
@@ -59,7 +59,7 @@ public sealed class RvcVoiceTrainer : IVoiceTrainer
         if (string.IsNullOrWhiteSpace(pthPath) || !File.Exists(pthPath))
             throw new FileNotFoundException(".pth 모델 파일을 찾을 수 없습니다.", pthPath);
 
-        var outPath = Path.Combine(AppSettings.ModelsDir, name + ".onnx");
+        var outPath = Path.Combine(_settings.EffectiveModelsDir, name + ".onnx");
         var args = new List<string>
         {
             "--rvc-root", _settings.RvcRoot!,
