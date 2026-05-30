@@ -2,7 +2,7 @@ namespace WpfMusicEditor.Main.Audio;
 
 /// <summary>
 /// 메모리에 디코딩된 편집 가능한 오디오. 인터리브된 float PCM 샘플을 들고 있으며
-/// 구간 삭제(Cut)·구간 볼륨 조절(ApplyGain)과 실행 취소(Undo)를 지원한다.
+/// 구간 삭제(Cut)·구간 볼륨 조절(ApplyGain)·구간 교체(ReplaceRange)와 실행 취소(Undo)를 지원한다.
 /// </summary>
 public sealed class AudioDocument
 {
@@ -79,7 +79,33 @@ public sealed class AudioDocument
         }
     }
 
-    /// <summary>마지막 편집(Cut/ApplyGain)을 되돌린다.</summary>
+    /// <summary>
+    /// [start, end) 구간을 <paramref name="newInterleaved"/>(인터리브, 채널 수는 이 문서와 동일)로 교체한다.
+    /// 음색 변환처럼 길이가 거의 같지만 리샘플 왕복으로 ±수 샘플 차이가 날 수 있어 스플라이스로 안전하게 갈아 끼운다.
+    /// </summary>
+    public void ReplaceRange(TimeSpan start, TimeSpan end, float[] newInterleaved)
+    {
+        var startFrame = ClampFrame(start);
+        var endFrame = ClampFrame(end);
+        if (endFrame <= startFrame)
+            return;
+
+        var startIdx = startFrame * Channels;
+        var endIdx = endFrame * Channels;
+
+        // 교체될 원본 구간을 백업해 두었다가 실행 취소 시 그대로 되돌린다(길이 변화까지 복원).
+        var original = new float[endIdx - startIdx];
+        Array.Copy(_samples, startIdx, original, 0, original.Length);
+        _undo.Push(new ReplaceOperation(startIdx, original, newInterleaved.Length));
+
+        var result = new float[_samples.Length - original.Length + newInterleaved.Length];
+        Array.Copy(_samples, 0, result, 0, startIdx);
+        Array.Copy(newInterleaved, 0, result, startIdx, newInterleaved.Length);
+        Array.Copy(_samples, endIdx, result, startIdx + newInterleaved.Length, _samples.Length - endIdx);
+        _samples = result;
+    }
+
+    /// <summary>마지막 편집(Cut/ApplyGain/ReplaceRange)을 되돌린다.</summary>
     public void Undo()
     {
         if (_undo.Count == 0)
@@ -160,5 +186,19 @@ public sealed class AudioDocument
     {
         public void Undo(ref float[] samples)
             => Array.Copy(Original, 0, samples, Index, Original.Length);
+    }
+
+    /// <summary>교체로 끼워 넣은 구간을 들어내고 원본 구간을 도로 끼워 길이까지 복원한다.</summary>
+    private readonly record struct ReplaceOperation(int Index, float[] Original, int NewLength) : IUndoStep
+    {
+        public void Undo(ref float[] samples)
+        {
+            var result = new float[samples.Length - NewLength + Original.Length];
+            Array.Copy(samples, 0, result, 0, Index);
+            Array.Copy(Original, 0, result, Index, Original.Length);
+            var tailSrc = Index + NewLength;
+            Array.Copy(samples, tailSrc, result, Index + Original.Length, samples.Length - tailSrc);
+            samples = result;
+        }
     }
 }

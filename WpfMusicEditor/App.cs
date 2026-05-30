@@ -5,6 +5,7 @@ using WpfMusicEditor.Forms;
 using WpfMusicEditor.Forms.Services;
 using WpfMusicEditor.Forms.UI.Views;
 using WpfMusicEditor.Forms.ViewModels;
+using WpfMusicEditor.Main;
 using WpfMusicEditor.Main.Audio;
 
 namespace WpfMusicEditor;
@@ -43,9 +44,14 @@ public class App : Application
     {
         services.AddSingleton<IAudioEditor, NAudioEditor>();
         services.AddSingleton<ISpeechRecognizer, WhisperSpeechRecognizer>();
+        services.AddSingleton<IVoiceConverter, RvcVoiceConverter>();
+        services.AddSingleton(_ => AppSettings.Load());
+        services.AddSingleton<IVoiceTrainer, RvcVoiceTrainer>();
         services.AddSingleton<AudioPlayer>();
         services.AddSingleton<UpdateService>();
         services.AddSingleton<MainWindowViewModel>();
+        services.AddSingleton<TrainingViewModel>();
+        services.AddTransient<TrainingWindow>();
         services.AddSingleton<MainWindow>();
     }
 }
