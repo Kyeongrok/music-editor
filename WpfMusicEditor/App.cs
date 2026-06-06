@@ -54,6 +54,8 @@ public class App : Application
         services.AddTransient<TrainingWindow>();
         services.AddSingleton<SettingsViewModel>();
         services.AddTransient<SettingsWindow>();
+        services.AddTransient<InsertAudioViewModel>();
+        services.AddTransient<InsertAudioWindow>();
         services.AddSingleton<MainWindow>();
     }
 }

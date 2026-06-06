@@ -155,6 +155,7 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConvertVoiceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(InsertAudioCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportCommand))]
     private bool _isTranscribing;
@@ -175,6 +176,7 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ApplyGainCommand))]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConvertVoiceCommand))]
+    [NotifyCanExecuteChangedFor(nameof(InsertAudioCommand))]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
     private bool _isBusy;
 
@@ -319,6 +321,59 @@ public partial class MainWindowViewModel : ObservableObject
                 _document!.Cut(TimeSpan.FromSeconds(StartSeconds), TimeSpan.FromSeconds(EndSeconds)));
             await RefreshAfterEditAsync(cutAt);
             Status = $"잘라냄 · 남은 길이 {DurationSeconds:0.##}초 (Ctrl+Z로 실행 취소)";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    // ── 편집: 다른 파일 구간 삽입 ───────────────────────────────
+
+    private bool CanInsertAudio() => !IsBusy && !IsTranscribing && HasDocument;
+
+    /// <summary>
+    /// 다른 오디오 파일을 열어 파형에서 고른 구간을, 현재 파일의 선택 시작 지점(StartSeconds)에
+    /// 끼워 넣는다. 두 파일의 샘플레이트·채널이 달라도 현재 문서 기준으로 변환해 붙인다.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanInsertAudio))]
+    private async Task InsertAudioAsync()
+    {
+        var window = AppServices.GetRequired<InsertAudioWindow>();
+        window.Owner = Application.Current?.MainWindow;
+        if (window.ShowDialog() != true)
+            return;
+
+        var (region, srcRate, srcChannels) = window.ViewModel.GetSelectedRegion();
+        if (region.Length == 0)
+            return;
+
+        StopPlayback();
+        IsBusy = true;
+        try
+        {
+            var at = StartSeconds;
+            var dstRate = _document!.SampleRate;
+            var dstChannels = _document.Channels;
+
+            // 리샘플·채널 변환·삽입은 무거울 수 있어 백그라운드에서 처리한다.
+            var resampled = await Task.Run(() =>
+                AudioResampler.Resample(region, srcRate, srcChannels, dstRate, dstChannels));
+            await Task.Run(() => _document.Insert(TimeSpan.FromSeconds(at), resampled));
+
+            await RefreshAfterEditAsync(at);
+
+            // 끼워 넣은 구간을 선택해 둔다(바로 들어보거나 추가 편집하기 좋게).
+            var insertedSeconds = (double)(resampled.Length / dstChannels) / dstRate;
+            StartSeconds = Math.Clamp(at, 0, DurationSeconds);
+            EndSeconds = Math.Clamp(at + insertedSeconds, 0, DurationSeconds);
+
+            Status = $"삽입 완료 · {insertedSeconds:0.##}초를 {at:0.##}초 지점에 끼워 넣음 (Ctrl+Z로 실행 취소)";
+        }
+        catch (Exception ex)
+        {
+            Status = $"삽입 실패: {ex.Message}";
+            MessageBox.Show(ex.Message, "삽입 실패", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -543,6 +598,7 @@ public partial class MainWindowViewModel : ObservableObject
     private void RefreshCommands()
     {
         CutCommand.NotifyCanExecuteChanged();
+        InsertAudioCommand.NotifyCanExecuteChanged();
         ApplyGainCommand.NotifyCanExecuteChanged();
         TranscribeCommand.NotifyCanExecuteChanged();
         ConvertVoiceCommand.NotifyCanExecuteChanged();

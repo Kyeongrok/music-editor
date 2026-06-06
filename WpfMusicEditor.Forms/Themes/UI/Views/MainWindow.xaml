@@ -338,6 +338,7 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <Button
                                         Grid.Column="0"
@@ -354,11 +355,18 @@
                                     <Button
                                         Grid.Column="3"
                                         Margin="0,0,8,0"
+                                        Command="{Binding InsertAudioCommand}"
+                                        Content="➜ 구간 삽입"
+                                        Style="{StaticResource GhostButton}"
+                                        ToolTip="다른 오디오 파일을 열어 고른 구간을 현재 선택 시작 지점에 끼워 넣습니다 (Ctrl+Z로 실행 취소)" />
+                                    <Button
+                                        Grid.Column="4"
+                                        Margin="0,0,8,0"
                                         Command="{Binding UndoCommand}"
                                         Content="↶ 실행취소"
                                         Style="{StaticResource GhostButton}" />
                                     <Button
-                                        Grid.Column="4"
+                                        Grid.Column="5"
                                         Command="{Binding CutCommand}"
                                         Content="✂ 구간 잘라내기"
                                         Style="{StaticResource CutButton}" />

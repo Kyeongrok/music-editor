@@ -105,7 +105,26 @@ public sealed class AudioDocument
         _samples = result;
     }
 
-    /// <summary>마지막 편집(Cut/ApplyGain/ReplaceRange)을 되돌린다.</summary>
+    /// <summary>
+    /// <paramref name="at"/> 지점에 <paramref name="newInterleaved"/>(인터리브, 채널 수는 이 문서와 동일)를
+    /// 끼워 넣고 뒤쪽을 뒤로 민다. 전체 길이가 끼워 넣은 만큼 늘어난다.
+    /// </summary>
+    public void Insert(TimeSpan at, float[] newInterleaved)
+    {
+        if (newInterleaved.Length == 0)
+            return;
+
+        var atIdx = ClampFrame(at) * Channels;
+        _undo.Push(new InsertOperation(atIdx, newInterleaved.Length));
+
+        var result = new float[_samples.Length + newInterleaved.Length];
+        Array.Copy(_samples, 0, result, 0, atIdx);
+        Array.Copy(newInterleaved, 0, result, atIdx, newInterleaved.Length);
+        Array.Copy(_samples, atIdx, result, atIdx + newInterleaved.Length, _samples.Length - atIdx);
+        _samples = result;
+    }
+
+    /// <summary>마지막 편집(Cut/ApplyGain/ReplaceRange/Insert)을 되돌린다.</summary>
     public void Undo()
     {
         if (_undo.Count == 0)
@@ -198,6 +217,19 @@ public sealed class AudioDocument
             Array.Copy(Original, 0, result, Index, Original.Length);
             var tailSrc = Index + NewLength;
             Array.Copy(samples, tailSrc, result, Index + Original.Length, samples.Length - tailSrc);
+            samples = result;
+        }
+    }
+
+    /// <summary>끼워 넣었던 구간을 들어내 길이를 원래대로 되돌린다.</summary>
+    private readonly record struct InsertOperation(int Index, int InsertedLength) : IUndoStep
+    {
+        public void Undo(ref float[] samples)
+        {
+            var result = new float[samples.Length - InsertedLength];
+            Array.Copy(samples, 0, result, 0, Index);
+            var tailSrc = Index + InsertedLength;
+            Array.Copy(samples, tailSrc, result, Index, samples.Length - tailSrc);
             samples = result;
         }
     }
