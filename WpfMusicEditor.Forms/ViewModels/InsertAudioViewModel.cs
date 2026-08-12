@@ -1,6 +1,5 @@
 using System.IO;
 using System.Windows;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -17,18 +16,16 @@ public partial class InsertAudioViewModel : ObservableObject, IDisposable
 {
     private readonly IAudioEditor _editor;
     private readonly AudioPlayer _player = new();
-    private readonly DispatcherTimer _cursorTimer;
 
     private AudioDocument? _source;
-    private bool _suppressCursorSeek;
 
     public InsertAudioViewModel(IAudioEditor editor)
     {
         _editor = editor;
-        _player.PlaybackStopped += OnPlaybackStopped;
-        _cursorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
-        _cursorTimer.Tick += OnCursorTick;
+        Playback = new PlaybackController(_player, () => DurationSeconds, () => StartSeconds);
     }
+
+    public PlaybackController Playback { get; }
 
     [ObservableProperty]
     private string _fileName = "(가져올 파일을 여세요)";
@@ -48,13 +45,6 @@ public partial class InsertAudioViewModel : ObservableObject, IDisposable
     private float[] _peaks = Array.Empty<float>();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(PlayPauseLabel))]
-    private bool _isPlaying;
-
-    [ObservableProperty]
-    private double _playPositionSeconds;
-
-    [ObservableProperty]
     private WaveformInteractionMode _waveformMode = WaveformInteractionMode.Select;
 
     // 값을 바꾸면 파형이 전체 보기로 돌아간다(새 파일 열기 시 증가).
@@ -66,8 +56,6 @@ public partial class InsertAudioViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string _status = "파일을 열고 파형을 드래그해 가져올 구간을 선택하세요.";
-
-    public string PlayPauseLabel => IsPlaying ? "❚❚ 일시정지" : "▶ 재생";
 
     /// <summary>파일이 열려 있고 유효한 구간이 선택돼야 삽입할 수 있다.</summary>
     public bool CanConfirm => HasDocument && EndSeconds > StartSeconds;
@@ -87,7 +75,7 @@ public partial class InsertAudioViewModel : ObservableObject, IDisposable
         if (dialog.ShowDialog() != true)
             return;
 
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         try
         {
@@ -101,7 +89,7 @@ public partial class InsertAudioViewModel : ObservableObject, IDisposable
             StartSeconds = 0;
             EndSeconds = document.Duration.TotalSeconds;
             Peaks = peaks;
-            PlayPositionSeconds = 0;
+            Playback.PlayPositionSeconds = 0;
             WaveformResetView++;
             _player.LoadSamples(document.Samples, document.SampleRate, document.Channels);
 
@@ -125,25 +113,11 @@ public partial class InsertAudioViewModel : ObservableObject, IDisposable
         if (!HasDocument)
             return;
 
-        if (IsPlaying)
-        {
-            _player.Pause();
-            _cursorTimer.Stop();
-            IsPlaying = false;
-            return;
-        }
-
-        var from = PlayPositionSeconds;
-        if (from < 0 || from >= DurationSeconds)
-            from = StartSeconds;
-
-        _player.Play(TimeSpan.FromSeconds(from));
-        _cursorTimer.Start();
-        IsPlaying = true;
+        Playback.TogglePlayPause();
     }
 
     [RelayCommand]
-    private void Stop() => StopPlayback();
+    private void Stop() => Playback.Stop();
 
     /// <summary>선택 구간의 원본 인터리브 샘플과 원본 샘플레이트·채널을 돌려준다(원본은 그대로).</summary>
     public (float[] region, int sampleRate, int channels) GetSelectedRegion()
@@ -155,48 +129,9 @@ public partial class InsertAudioViewModel : ObservableObject, IDisposable
         return (region, _source.SampleRate, _source.Channels);
     }
 
-    private void StopPlayback()
-    {
-        _cursorTimer.Stop();
-        _player.Stop();
-        IsPlaying = false;
-        PlayPositionSeconds = StartSeconds;
-    }
-
-    private void OnCursorTick(object? sender, EventArgs e)
-    {
-        var pos = _player.CurrentTime.TotalSeconds;
-
-        _suppressCursorSeek = true;
-        PlayPositionSeconds = pos;
-        _suppressCursorSeek = false;
-
-        if (pos >= DurationSeconds)
-            StopPlayback();
-    }
-
-    // 재생 중 파형을 클릭하면(= 외부에서 위치 변경) 그 지점으로 즉시 이동한다.
-    partial void OnPlayPositionSecondsChanged(double value)
-    {
-        if (_suppressCursorSeek || !IsPlaying)
-            return;
-
-        _player.Play(TimeSpan.FromSeconds(value));
-    }
-
-    private void OnPlaybackStopped(object? sender, EventArgs e)
-    {
-        if (IsPlaying)
-        {
-            _cursorTimer.Stop();
-            IsPlaying = false;
-        }
-    }
-
     public void Dispose()
     {
-        _cursorTimer.Stop();
-        _player.PlaybackStopped -= OnPlaybackStopped;
+        Playback.Dispose();
         _player.Dispose();
     }
 }

@@ -4,5 +4,6 @@
         <ResourceDictionary Source="/WpfMusicEditor.Support;component/Themes/Units/MinimizeButton.xaml" />
         <ResourceDictionary Source="/WpfMusicEditor.Support;component/Themes/Units/MaximizeButton.xaml" />
         <ResourceDictionary Source="/WpfMusicEditor.Support;component/Themes/Units/CloseButton.xaml" />
+        <ResourceDictionary Source="/WpfMusicEditor.Support;component/Themes/Units/RoundSlider.xaml" />
     </ResourceDictionary.MergedDictionaries>
 </ResourceDictionary>

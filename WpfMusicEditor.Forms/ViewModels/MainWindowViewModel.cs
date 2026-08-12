@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -22,11 +21,8 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly TrainingViewModel _training;
     private readonly AudioPlayer _player;
     private readonly UpdateService _updateService;
-    private readonly DispatcherTimer _cursorTimer;
 
     private AudioDocument? _document;
-    private bool _suppressCursorSeek;
-    private double _playbackEnd;
 
     public MainWindowViewModel(IAudioEditor editor, ISpeechRecognizer recognizer,
         IVoiceConverter converter, IVoiceTrainer trainer, TrainingViewModel training,
@@ -39,16 +35,13 @@ public partial class MainWindowViewModel : ObservableObject
         _training = training;
         _player = player;
         _updateService = updateService;
+        Playback = new PlaybackController(_player, () => DurationSeconds, () => StartSeconds);
 
         // 학습이 끝나면 새 모델을 음색 변환에 바로 쓰도록 선택해 둔다.
         _training.ModelCreated += path => VoiceModelPath = path;
-        _player.PlaybackStopped += OnPlaybackStopped;
 
         // NVIDIA/CUDA GPU가 없으면 STT가 CPU로 동작해 매우 느리므로 상단에 경고를 띄운다.
         ShowGpuWarning = !HasCudaGpu();
-
-        _cursorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
-        _cursorTimer.Tick += OnCursorTick;
 
         // 줄 개수가 바뀌면 지우기/이동 버튼의 활성화 상태를 갱신한다.
         TranscriptLines.CollectionChanged += (_, _) =>
@@ -58,6 +51,8 @@ public partial class MainWindowViewModel : ObservableObject
             MoveLinesDownCommand.NotifyCanExecuteChanged();
         };
     }
+
+    public PlaybackController Playback { get; }
 
     /// <summary>창 로드 시 호출. 새 버전이 있으면 내려받고 재시작 여부를 묻는다.</summary>
     public async Task CheckForUpdateAsync()
@@ -187,20 +182,11 @@ public partial class MainWindowViewModel : ObservableObject
     private float[] _peaks = Array.Empty<float>();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(PlayPauseLabel))]
-    private bool _isPlaying;
-
-    [ObservableProperty]
-    private double _playPositionSeconds;
-
-    [ObservableProperty]
     private WaveformInteractionMode _waveformMode = WaveformInteractionMode.Select;
 
     // 값을 바꾸면 파형이 전체 보기로 돌아간다(새 파일 열기 전용). 잘라내기/실행취소는 확대 유지.
     [ObservableProperty]
     private int _waveformResetView;
-
-    public string PlayPauseLabel => IsPlaying ? "❚❚ 일시정지" : "▶ 재생";
 
     private bool HasDocument => _document is { FrameCount: > 0 };
 
@@ -217,7 +203,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (dialog.ShowDialog() != true)
             return;
 
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         try
         {
@@ -231,7 +217,7 @@ public partial class MainWindowViewModel : ObservableObject
             StartSeconds = 0;
             EndSeconds = document.Duration.TotalSeconds;
             Peaks = peaks;
-            PlayPositionSeconds = 0;
+            Playback.PlayPositionSeconds = 0;
             WaveformResetView++;
             _player.LoadSamples(document.Samples, document.SampleRate, document.Channels);
 
@@ -279,7 +265,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (dialog.ShowDialog() != true)
             return;
 
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         try
         {
@@ -312,7 +298,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanCut))]
     private async Task CutAsync()
     {
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         try
         {
@@ -348,7 +334,7 @@ public partial class MainWindowViewModel : ObservableObject
         if (region.Length == 0)
             return;
 
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         try
         {
@@ -388,7 +374,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanApplyGain))]
     private async Task ApplyGainAsync()
     {
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         try
         {
@@ -433,7 +419,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanConvertVoice))]
     private async Task ConvertVoiceAsync()
     {
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         IsConvertingVoice = true;
         ConvertVoiceProgress = 0;
@@ -567,7 +553,7 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanUndo))]
     private async Task UndoAsync()
     {
-        StopPlayback();
+        Playback.Stop();
         IsBusy = true;
         try
         {
@@ -591,7 +577,7 @@ public partial class MainWindowViewModel : ObservableObject
         var point = Math.Clamp(selectionPoint, 0, DurationSeconds);
         StartSeconds = point;
         EndSeconds = point;
-        PlayPositionSeconds = point;
+        Playback.PlayPositionSeconds = point;
         RefreshCommands();
     }
 
@@ -611,73 +597,10 @@ public partial class MainWindowViewModel : ObservableObject
     // ── 재생 ────────────────────────────────────────────────────
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
-    private void PlayPause()
-    {
-        if (IsPlaying)
-        {
-            _player.Pause();
-            _cursorTimer.Stop();
-            IsPlaying = false;
-            return;
-        }
-
-        var from = PlayPositionSeconds;
-        if (from < 0 || from >= DurationSeconds)
-            from = StartSeconds;
-
-        _playbackEnd = ResolvePlaybackEnd(from);
-        _player.Play(TimeSpan.FromSeconds(from));
-        _cursorTimer.Start();
-        IsPlaying = true;
-    }
-
-    /// <summary>
-    /// 선택 구간과 무관하게 항상 파일 끝까지 재생한다.
-    /// </summary>
-    private double ResolvePlaybackEnd(double from) => DurationSeconds;
+    private void PlayPause() => Playback.TogglePlayPause();
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
-    private void Stop() => StopPlayback();
-
-    private void StopPlayback()
-    {
-        _cursorTimer.Stop();
-        _player.Stop();
-        IsPlaying = false;
-        PlayPositionSeconds = StartSeconds;
-    }
-
-    private void OnCursorTick(object? sender, EventArgs e)
-    {
-        var pos = _player.CurrentTime.TotalSeconds;
-
-        // 타이머가 쓰는 값은 재생기의 실제 위치이므로 다시 시킹하지 않는다.
-        _suppressCursorSeek = true;
-        PlayPositionSeconds = pos;
-        _suppressCursorSeek = false;
-
-        if (pos >= _playbackEnd)
-            StopPlayback();
-    }
-
-    // 재생 중 파형을 클릭하면(= 외부에서 위치 변경) 그 지점으로 즉시 이동한다.
-    partial void OnPlayPositionSecondsChanged(double value)
-    {
-        if (_suppressCursorSeek || !IsPlaying)
-            return;
-
-        _playbackEnd = ResolvePlaybackEnd(value);
-        _player.Play(TimeSpan.FromSeconds(value));
-    }
-
-    private void OnPlaybackStopped(object? sender, EventArgs e)
-    {
-        if (IsPlaying)
-        {
-            _cursorTimer.Stop();
-            IsPlaying = false;
-        }
-    }
+    private void Stop() => Playback.Stop();
 
     // ── 내보내기 ──────────────────────────────────────────────────
 

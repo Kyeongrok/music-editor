@@ -1,9 +1,13 @@
-<ResourceDictionary
+﻿<ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:conv="clr-namespace:WpfMusicEditor.Forms.UI.Converters"
     xmlns:support="clr-namespace:WpfMusicEditor.Support.UI.Units;assembly=WpfMusicEditor.Support"
     xmlns:views="clr-namespace:WpfMusicEditor.Forms.UI.Views">
+
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="/WpfMusicEditor.Support;component/Themes/Units/RoundSlider.xaml" />
+    </ResourceDictionary.MergedDictionaries>
 
     <conv:EnumToBooleanConverter x:Key="EnumToBool" />
     <conv:GreaterThanZeroConverter x:Key="GreaterThanZero" />
@@ -20,7 +24,10 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Bd" Background="#3C3C3C" CornerRadius="4">
+                    <Border
+                        x:Name="Bd"
+                        Background="#3C3C3C"
+                        CornerRadius="4">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
@@ -70,7 +77,10 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
-                    <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
+                    <Border
+                        x:Name="Bd"
+                        Padding="{TemplateBinding Padding}"
+                        Background="Transparent">
                         <ContentPresenter />
                     </Border>
                     <ControlTemplate.Triggers>
@@ -97,7 +107,10 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border Background="{TemplateBinding Background}" CornerRadius="4">
-                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <ContentPresenter
+                            Margin="{TemplateBinding Padding}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
                     </Border>
                 </ControlTemplate>
             </Setter.Value>
@@ -113,7 +126,10 @@
         </Style.Triggers>
     </Style>
 
-    <Style x:Key="GhostButton" BasedOn="{StaticResource AccentButton}" TargetType="Button">
+    <Style
+        x:Key="GhostButton"
+        BasedOn="{StaticResource AccentButton}"
+        TargetType="Button">
         <Setter Property="Background" Value="#3C3C3C" />
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
@@ -126,7 +142,10 @@
         </Style.Triggers>
     </Style>
 
-    <Style x:Key="CutButton" BasedOn="{StaticResource AccentButton}" TargetType="Button">
+    <Style
+        x:Key="CutButton"
+        BasedOn="{StaticResource AccentButton}"
+        TargetType="Button">
         <Setter Property="Background" Value="#C04545" />
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
@@ -278,13 +297,13 @@
                                         <support:WaveformControl
                                             x:Name="PART_Waveform"
                                             Background="#252526"
-                                            Duration="{Binding DurationSeconds}"
                                             Mode="{Binding WaveformMode}"
                                             Peaks="{Binding Peaks}"
-                                            PlayPosition="{Binding PlayPositionSeconds, Mode=TwoWay}"
+                                            PlayPosition="{Binding Playback.PlayPositionSeconds, Mode=TwoWay}"
                                             ResetView="{Binding WaveformResetView}"
                                             SelectionEnd="{Binding EndSeconds, Mode=TwoWay}"
-                                            SelectionStart="{Binding StartSeconds, Mode=TwoWay}" />
+                                            SelectionStart="{Binding StartSeconds, Mode=TwoWay}"
+                                            Duration="{Binding DurationSeconds}" />
                                     </Border>
 
                                     <!--  가로 스크롤 슬라이더 (확대 시 좌우 이동)  -->
@@ -298,12 +317,14 @@
                                         Maximum="{Binding MaxViewStart, ElementName=PART_Waveform}"
                                         Minimum="0"
                                         SmallChange="0.1"
+                                        Style="{StaticResource RoundSlider}"
                                         Value="{Binding ViewStart, ElementName=PART_Waveform, Mode=TwoWay}" />
                                 </Grid>
 
                                 <!--  구간 선택  -->
                                 <Grid Grid.Row="2" Margin="0,16,0,0">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="20" />
@@ -312,20 +333,28 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBlock
                                         Grid.Column="0"
+                                        Margin="0,0,12,0"
+                                        FontFamily="Consolas"
+                                        Foreground="#E8B339"
+                                        Style="{StaticResource Label}"
+                                        Text="{Binding Playback.PlayPositionLabel}"
+                                        ToolTip="현재 재생 위치(노란 바)" />
+                                    <TextBlock
+                                        Grid.Column="1"
                                         Margin="0,0,8,0"
                                         Style="{StaticResource Label}"
                                         Text="시작(초)" />
                                     <TextBox
-                                        Grid.Column="1"
+                                        Grid.Column="2"
                                         Style="{StaticResource DarkTextBox}"
                                         Text="{Binding StartSeconds, UpdateSourceTrigger=PropertyChanged, StringFormat=0.###}" />
                                     <TextBlock
-                                        Grid.Column="3"
+                                        Grid.Column="4"
                                         Margin="0,0,8,0"
                                         Style="{StaticResource Label}"
                                         Text="끝(초)" />
                                     <TextBox
-                                        Grid.Column="4"
+                                        Grid.Column="5"
                                         Style="{StaticResource DarkTextBox}"
                                         Text="{Binding EndSeconds, UpdateSourceTrigger=PropertyChanged, StringFormat=0.###}" />
                                 </Grid>
@@ -344,7 +373,7 @@
                                         Grid.Column="0"
                                         Width="96"
                                         Command="{Binding PlayPauseCommand}"
-                                        Content="{Binding PlayPauseLabel}"
+                                        Content="{Binding Playback.PlayPauseLabel}"
                                         Style="{StaticResource GhostButton}" />
                                     <Button
                                         Grid.Column="1"
@@ -465,8 +494,8 @@
                                         Foreground="#0078D4"
                                         Maximum="100"
                                         Minimum="0"
-                                        Value="{Binding ConvertVoiceProgress}"
-                                        Visibility="{Binding IsConvertingVoice, Converter={StaticResource BoolToVis}}" />
+                                        Visibility="{Binding IsConvertingVoice, Converter={StaticResource BoolToVis}}"
+                                        Value="{Binding ConvertVoiceProgress}" />
                                 </Grid>
 
                                 <!--  음성 인식: 선택 구간 전사  -->
@@ -516,8 +545,8 @@
                                         Foreground="#0078D4"
                                         Maximum="100"
                                         Minimum="0"
-                                        Value="{Binding TranscribeProgress}"
-                                        Visibility="{Binding IsTranscribing, Converter={StaticResource BoolToVis}}">
+                                        Visibility="{Binding IsTranscribing, Converter={StaticResource BoolToVis}}"
+                                        Value="{Binding TranscribeProgress}">
                                         <ProgressBar.Style>
                                             <Style TargetType="ProgressBar">
                                                 <Style.Triggers>
